@@ -6,6 +6,7 @@
 
 // Import the original processor if available
 import { toast } from "@/hooks/use-toast";
+import { processKatapultData, formatHeightToString } from "./katapultDataProcessor";
 
 // Function to override the pole owner extraction
 export function overridePoleOwner() {
@@ -39,70 +40,62 @@ export function overrideMidspanHeights() {
   // This will be called by the processor when it needs to extract heights
   window._extractMidspanHeightsOverride = (katapultJson, spidaJson) => {
     try {
-      console.log("Extracting lowest midspan heights from Katapult JSON");
+      console.log("Extracting lowest midspan heights from Katapult JSON with enhanced processor");
       
       if (!katapultJson) {
         console.error("Katapult JSON is missing");
         return { comHeight: "N/A", cpsHeight: "N/A" };
       }
       
-      // Initialize with high values to find the lowest
+      // Process the Katapult data using our enhanced processor
+      const processedResults = processKatapultData(katapultJson);
+      
+      // Find the lowest COM and CPS heights across all connections
       let lowestComHeight = Number.MAX_VALUE;
       let lowestCpsHeight = Number.MAX_VALUE;
       
-      // Extract spans from Katapult JSON
-      const spans = katapultJson.spans || [];
-      console.log(`Found ${spans.length} spans in Katapult data`);
-      
-      for (const span of spans) {
-        // Process communication lines (COM)
-        const comCables = span.cables?.filter(cable => 
-          cable.usageGroup?.toLowerCase() === "communication" || 
-          cable.type?.toLowerCase().includes("com")
-        ) || [];
-        
-        // Process electrical lines (CPS)
-        const cpsCables = span.cables?.filter(cable => 
-          cable.usageGroup?.toLowerCase() === "power" || 
-          cable.usageGroup?.toLowerCase() === "electrical" ||
-          cable.type?.toLowerCase().includes("electric") ||
-          cable.type?.toLowerCase().includes("power")
-        ) || [];
-        
-        console.log(`Span ${span.id || 'unknown'}: Found ${comCables.length} COM cables and ${cpsCables.length} CPS cables`);
-        
-        // Find lowest point for each COM cable
-        for (const cable of comCables) {
-          const lowestPoint = cable.lowestPointHeight || cable.midspanHeight || cable.height;
-          if (lowestPoint && typeof lowestPoint === 'number' && lowestPoint < lowestComHeight) {
-            lowestComHeight = lowestPoint;
-            console.log(`New lowest COM height: ${lowestComHeight}`);
-          }
-        }
-        
-        // Find lowest point for each CPS cable
-        for (const cable of cpsCables) {
-          const lowestPoint = cable.lowestPointHeight || cable.midspanHeight || cable.height;
-          if (lowestPoint && typeof lowestPoint === 'number' && lowestPoint < lowestCpsHeight) {
-            lowestCpsHeight = lowestPoint;
-            console.log(`New lowest CPS height: ${lowestCpsHeight}`);
+      // Analyze all connections and their wires
+      for (const connection of processedResults.connections) {
+        for (const traceId in connection.wires) {
+          const wire = connection.wires[traceId];
+          const company = wire.company.toLowerCase();
+          const cableType = wire.cableType.toLowerCase();
+          
+          // Determine if this is a communication or power wire
+          const isCom = company.includes('com') || 
+                       cableType.includes('com') || 
+                       company.includes('telephone') || 
+                       cableType.includes('telephone');
+                       
+          const isCps = company.includes('power') || 
+                       cableType.includes('power') || 
+                       company.includes('electric') || 
+                       cableType.includes('electric');
+          
+          // Use proposed height if available, otherwise existing height
+          const heightToUse = wire.finalProposedMidspanHeight !== null ? 
+                             wire.finalProposedMidspanHeight : 
+                             wire.lowestExistingMidspanHeight;
+          
+          if (heightToUse !== null) {
+            if (isCom && heightToUse < lowestComHeight) {
+              lowestComHeight = heightToUse;
+              console.log(`New lowest COM height: ${formatHeightToString(lowestComHeight)} from trace ${traceId}`);
+            }
+            
+            if (isCps && heightToUse < lowestCpsHeight) {
+              lowestCpsHeight = heightToUse;
+              console.log(`New lowest CPS height: ${formatHeightToString(lowestCpsHeight)} from trace ${traceId}`);
+            }
           }
         }
       }
       
-      // Format heights to feet-inches format
-      const formatHeight = (heightInFeet) => {
-        if (heightInFeet === Number.MAX_VALUE || isNaN(heightInFeet)) {
-          return "N/A";
-        }
-        
-        const feet = Math.floor(heightInFeet);
-        const inches = Math.round((heightInFeet - feet) * 12);
-        return `${feet}'-${inches}"`;
-      };
-      
-      const comHeightFormatted = formatHeight(lowestComHeight);
-      const cpsHeightFormatted = formatHeight(lowestCpsHeight);
+      // Format the heights
+      const comHeightFormatted = lowestComHeight !== Number.MAX_VALUE ? 
+                               formatHeightToString(lowestComHeight) : "N/A";
+      const cpsHeightFormatted = lowestCpsHeight !== Number.MAX_VALUE ? 
+                               formatHeightToString(lowestCpsHeight) : "N/A";
       
       console.log(`Final lowest heights - COM: ${comHeightFormatted}, CPS: ${cpsHeightFormatted}`);
       
