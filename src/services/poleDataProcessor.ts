@@ -6,6 +6,7 @@ import { ProcessingError } from './types/poleTypes';
 import { PoleDataLoader } from './dataLoader/poleDataLoader';
 import { PoleDataExtractor } from './dataExtractor/poleDataExtractor';
 import { PoleExcelGenerator } from './excelGenerator/poleExcelGenerator';
+import type { PoleData } from './types/poleTypes';
 
 // Re-export the types that are used by other components
 export type { PoleData, SpanData, AttachmentData, ProcessingError } from './types/poleTypes';
@@ -17,7 +18,7 @@ export class PoleDataProcessor {
   private dataLoader: PoleDataLoader;
   private dataExtractor: PoleDataExtractor | null = null;
   private excelGenerator: PoleExcelGenerator;
-  private processedPoles: import('./types/poleTypes').PoleData[] = [];
+  private processedPoles: PoleData[] = [];
   private errors: ProcessingError[] = [];
   private operationCounter: number = 1;
 
