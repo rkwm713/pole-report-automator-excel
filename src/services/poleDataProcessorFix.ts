@@ -141,11 +141,25 @@ export function fixFromToPoleRows(poleDataProcessor: any) {
     
     // Find a connection where this pole is involved
     const connections = Object.values(this.katapultData.connections);
-    const connection = connections.find((conn: any) => 
-      conn.node_id_1 === poleId || conn.node_id_2 === poleId
-    );
     
-    if (!connection) {
+    // Add proper type guard before accessing properties
+    const connection = connections.find((conn: any) => {
+      if (conn && typeof conn === 'object') {
+        return (
+          'node_id_1' in conn && 
+          'node_id_2' in conn && 
+          (conn.node_id_1 === poleId || conn.node_id_2 === poleId)
+        );
+      }
+      return false;
+    });
+    
+    if (!connection || typeof connection !== 'object') {
+      return null;
+    }
+    
+    // Type guard to ensure connection has required properties
+    if (!('node_id_1' in connection && 'node_id_2' in connection)) {
       return null;
     }
     
@@ -246,10 +260,18 @@ export function fixMidspanProposedHeight(poleDataProcessor: any) {
     
     // Look for underground paths connected to this pole
     const connections = Object.values(this.katapultData.connections);
-    const ugConnections = connections.filter((conn: any) => 
-      (conn.node_id_1 === poleId || conn.node_id_2 === poleId) && 
-      conn.button === "underground_path"
-    );
+    const ugConnections = connections.filter((conn: any) => {
+      if (conn && typeof conn === 'object') {
+        return (
+          'node_id_1' in conn && 
+          'node_id_2' in conn && 
+          'button' in conn &&
+          (conn.node_id_1 === poleId || conn.node_id_2 === poleId) && 
+          conn.button === "underground_path"
+        );
+      }
+      return false;
+    });
     
     if (ugConnections.length === 0) {
       return false;
@@ -258,12 +280,18 @@ export function fixMidspanProposedHeight(poleDataProcessor: any) {
     // If we have attachment trace info, check if this attachment is on the underground path
     if (attachment.traceId) {
       for (const conn of ugConnections) {
-        if (conn.sections) {
-          for (const sectionId in conn.sections) {
-            const section = conn.sections[sectionId];
-            if (section.attachments_on_section && 
-                section.attachments_on_section[attachment.traceId]) {
-              return true;
+        // Type guard to check if conn has sections
+        if (conn && typeof conn === 'object' && 'sections' in conn && conn.sections) {
+          const sections = conn.sections;
+          if (typeof sections === 'object') {
+            for (const sectionId in sections) {
+              const section = sections[sectionId];
+              if (section && typeof section === 'object' && 
+                  'attachments_on_section' in section && 
+                  section.attachments_on_section && 
+                  section.attachments_on_section[attachment.traceId]) {
+                return true;
+              }
             }
           }
         }
