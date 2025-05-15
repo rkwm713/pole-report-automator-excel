@@ -717,7 +717,7 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract pole structure information
-   * UPDATED to match README documentation
+   * UPDATED to more accurately extract height, class, and species information
    */
   private _extractPoleStructure(poleLocationData: any): string {
     try {
@@ -738,8 +738,8 @@ export class PoleDataProcessor {
       if (pole.clientItem?.height?.value) {
         const meters = pole.clientItem.height.value;
         const feet = this._metersToFeet(meters);
-        height = `${Math.round(feet)}'`;
-        console.log(`DEBUG: Extracted height: ${meters}m converted to ${height}`);
+        height = `${Math.round(feet)}`;
+        console.log(`DEBUG: Extracted height: ${meters}m converted to ${height}'`);
       } else {
         console.log("DEBUG: No height value found in pole.clientItem.height.value");
       }
@@ -762,30 +762,29 @@ export class PoleDataProcessor {
         console.log("DEBUG: No species found in pole.clientItem");
       }
       
-      // Alternative paths if primary paths fail
-      if (!height && pole.clientItemAlias) {
-        // Try to extract height from clientItemAlias (e.g., "40-4")
+      // Alternative path: Check clientItemAlias first (often more reliable)
+      if (pole.clientItemAlias) {
+        console.log(`DEBUG: Found clientItemAlias: ${pole.clientItemAlias}`);
         const parts = pole.clientItemAlias.split('-');
-        if (parts.length >= 1 && !isNaN(parseInt(parts[0]))) {
-          height = `${parts[0]}'`;
-          console.log(`DEBUG: Extracted height from clientItemAlias: ${height}`);
+        
+        if (parts.length >= 2) {
+          if (!height && !isNaN(parseInt(parts[0]))) {
+            height = parts[0];
+            console.log(`DEBUG: Extracted height from clientItemAlias: ${height}'`);
+          }
+          
+          if (!poleClass && !isNaN(parseInt(parts[1]))) {
+            poleClass = parts[1];
+            console.log(`DEBUG: Extracted class from clientItemAlias: ${poleClass}`);
+          }
         }
       }
       
-      if (!poleClass && pole.clientItemAlias) {
-        // Try to extract class from clientItemAlias (e.g., "40-4")
-        const parts = pole.clientItemAlias.split('-');
-        if (parts.length >= 2 && !isNaN(parseInt(parts[1]))) {
-          poleClass = parts[1];
-          console.log(`DEBUG: Extracted class from clientItemAlias: ${poleClass}`);
-        }
-      }
-      
-      // Format according to README: "40-4 Southern Pine"
+      // Format according to specs: "40-4 Southern Pine"
       let structureStr = "";
       
       if (height && poleClass) {
-        structureStr = `${height}-Class ${poleClass}`;
+        structureStr = `${height}-${poleClass}`;
       } else if (height) {
         structureStr = height;
       } else if (poleClass) {
@@ -898,97 +897,98 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract PLA value
-   * UPDATED to match README documentation and fix missing PLA issue
+   * UPDATED to properly navigate the JSON structure based on the provided paths
    */
   private _extractPLA(poleLocationData: any): { pla: string, actual: number } {
     try {
-      // Find the target analysis case (assuming "Light - Grade C" or similar)
+      console.log("DEBUG: Starting extraction of PLA value");
+      
+      // First, find the recommended design index
+      const designIndices = this._findDesignIndices(poleLocationData);
+      if (!designIndices) {
+        console.log("DEBUG: Could not find design indices");
+        return { pla: "N/A", actual: 0 };
+      }
+      
+      const recommendedDesignIdx = designIndices.recommended;
+      console.log(`DEBUG: Using recommended design index: ${recommendedDesignIdx}`);
+      
+      // Direct path to the analysis data as specified in the instructions
       const analysisObjects = poleLocationData?.analysis;
       if (!analysisObjects || !Array.isArray(analysisObjects)) {
-        console.log("DEBUG: No analysis objects found in pole location data");
+        console.log("DEBUG: No analysis objects found at poleLocationData.analysis path");
         return { pla: "N/A", actual: 0 };
       }
       
       console.log(`DEBUG: Found ${analysisObjects.length} analysis objects`);
       
-      // Log all analysis case names for debugging
+      // Log all analysis cases for debugging
       const caseNames = analysisObjects.map((a: any, i: number) => 
         `[${i}]: ${a?.analysisCaseDetails?.name || 'Unnamed'}`).join(', ');
       console.log(`DEBUG: Available analysis cases: ${caseNames}`);
       
-      // Look for the recommended design analysis case - trying multiple match patterns
-      let targetAnalysis = null;
-      
-      // First, try exact matches for known patterns
-      const knownPatterns = [
-        "Recommended Design",
-        "Light - Grade C",
-        "Grade C",
+      // Look for specific analysis case names
+      const targetAnalysisNames = [
+        "Recommended Design", 
+        "Light - Grade C", 
         "NESC Light Loading Grade C"
       ];
       
-      for (const pattern of knownPatterns) {
-        for (const analysis of analysisObjects) {
-          const caseName = analysis?.analysisCaseDetails?.name || "";
-          if (caseName.includes(pattern)) {
-            targetAnalysis = analysis;
-            console.log(`DEBUG: Found analysis case matching "${pattern}": ${caseName}`);
-            break;
-          }
-        }
-        if (targetAnalysis) break;
-      }
+      // Find the appropriate analysis case
+      let targetAnalysisCase = null;
       
-      // If no exact matches, look for any case with "Recommended" or "Grade"
-      if (!targetAnalysis) {
-        for (const analysis of analysisObjects) {
-          const caseName = analysis?.analysisCaseDetails?.name || "";
-          if (
-            caseName.includes("Recommended") || 
-            caseName.includes("Grade") ||
-            caseName.includes("NESC")
-          ) {
-            targetAnalysis = analysis;
-            console.log(`DEBUG: Found alternative analysis case: ${caseName}`);
-            break;
-          }
+      // First try exact matches
+      for (const analysis of analysisObjects) {
+        const caseName = analysis?.analysisCaseDetails?.name || "";
+        console.log(`DEBUG: Examining analysis case: "${caseName}"`);
+        
+        if (targetAnalysisNames.some(target => caseName.includes(target))) {
+          console.log(`DEBUG: Found matching analysis case: "${caseName}"`);
+          targetAnalysisCase = analysis;
+          break;
         }
       }
       
-      // Use the first analysis if specific case not found
-      if (!targetAnalysis && analysisObjects.length > 0) {
-        targetAnalysis = analysisObjects[0];
-        console.log(`DEBUG: Using first available analysis case as fallback: ${targetAnalysis?.analysisCaseDetails?.name || 'Unnamed'}`);
+      // Fallback to any case referencing the recommended design
+      if (!targetAnalysisCase) {
+        for (const analysis of analysisObjects) {
+          if (analysis?.analysisCaseDetails?.designId === poleLocationData?.designs?.[recommendedDesignIdx]?.id) {
+            console.log(`DEBUG: Found analysis case matching recommended design ID`);
+            targetAnalysisCase = analysis;
+            break;
+          }
+        }
       }
       
-      // If still no analysis found
-      if (!targetAnalysis) {
+      // If still not found, use the first analysis case
+      if (!targetAnalysisCase && analysisObjects.length > 0) {
+        console.log("DEBUG: Using first analysis case as fallback");
+        targetAnalysisCase = analysisObjects[0];
+      }
+      
+      if (!targetAnalysisCase) {
         console.log("DEBUG: No suitable analysis case found");
         return { pla: "N/A", actual: 0 };
       }
       
-      // Find the pole stress result
-      const results = targetAnalysis.results || [];
-      if (results.length === 0) {
-        console.log("DEBUG: No results found in the target analysis case");
-      } else {
-        console.log(`DEBUG: Found ${results.length} results in the analysis case`);
-        
-        // Log all result types for debugging
-        const resultTypes = results.map((r: any, i: number) => 
+      // Find the pole stress result in the results array
+      const results = targetAnalysisCase.results || [];
+      console.log(`DEBUG: Found ${results.length} results in the analysis case`);
+      
+      // Log result properties for debugging
+      if (results.length > 0) {
+        const resultProperties = results.map((r: any, i: number) => 
           `[${i}]: component=${r.component}, type=${r.analysisType}, actual=${r.actual}`).join('; ');
-        console.log(`DEBUG: Available results: ${resultTypes}`);
+        console.log(`DEBUG: Results details: ${resultProperties}`);
       }
       
+      // Look for pole stress result
       for (const result of results) {
-        if (
-          result.component === "Pole" && 
-          result.analysisType === "STRESS"
-        ) {
+        if (result.component === "Pole" && result.analysisType === "STRESS") {
           const plaValue = result.actual;
           if (typeof plaValue === "number") {
-            // Format as percentage with 2 decimal places
             console.log(`DEBUG: Found PLA value: ${plaValue}`);
+            // Format as percentage with 2 decimal places
             return { 
               pla: `${plaValue.toFixed(2)}%`, 
               actual: plaValue 
@@ -997,12 +997,14 @@ export class PoleDataProcessor {
         }
       }
       
-      // If we get here, try broader search for any stress result
+      console.log("DEBUG: No pole stress result found - trying broader search");
+      
+      // If no specific pole stress found, try any stress result
       for (const result of results) {
         if (result.analysisType === "STRESS" && typeof result.actual === "number") {
-          console.log(`DEBUG: Found alternative stress result for ${result.component}: ${result.actual}`);
-          return {
-            pla: `${result.actual.toFixed(2)}%`,
+          console.log(`DEBUG: Using alternative stress result for ${result.component}: ${result.actual}`);
+          return { 
+            pla: `${result.actual.toFixed(2)}%`, 
             actual: result.actual
           };
         }
@@ -1018,10 +1020,17 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract construction grade
-   * UPDATED to match README documentation and fix extraction
+   * UPDATED to improve extraction logic based on the provided paths
    */
   private _extractConstructionGrade(poleLocationData: any): string {
     try {
+      // Always return Grade C per app requirements
+      return "Grade C";
+      
+      // The code below is kept but effectively bypassed due to requirements
+      // that construction grade should always be Grade C
+      
+      /*
       // Find the target analysis case
       const analysisObjects = poleLocationData?.analysis;
       if (!analysisObjects || !Array.isArray(analysisObjects)) {
@@ -1068,9 +1077,10 @@ export class PoleDataProcessor {
       
       console.log("DEBUG: No construction grade found");
       return "N/A";
+      */
     } catch (error) {
       console.error("Error extracting construction grade:", error);
-      return "N/A";
+      return "Grade C"; // Default to Grade C per requirements
     }
   }
 
