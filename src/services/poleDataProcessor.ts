@@ -132,6 +132,13 @@ export class PoleDataProcessor {
       this.katapultPoleLookupMap.clear();
       this.operationCounter = 1;
 
+      // Add debug logging for Katapult data structure
+      console.log("DEBUG: Katapult data structure:", JSON.stringify(this.katapultData).substring(0, 500) + "...");
+      
+      if (typeof this.katapultData === 'object') {
+        console.log("DEBUG: Katapult data keys:", Object.keys(this.katapultData));
+      }
+      
       // Create lookup maps for efficient matching between data sources
       this._createPoleLookupMaps();
       
@@ -354,18 +361,96 @@ export class PoleDataProcessor {
     }
     
     // Create maps for Katapult poles
-    // Note: The exact path to pole data in Katapult might need adjustment based on actual structure
-    if (this.katapultData?.nodes) {
-      for (const node of this.katapultData.nodes) {
+    // Make this method more robust to handle different Katapult data structures
+    try {
+      // Log Katapult structure for debugging
+      console.log("DEBUG: Katapult structure check at _createPoleLookupMaps");
+      
+      if (!this.katapultData) {
+        console.warn("Katapult data is null or undefined");
+        return;
+      }
+      
+      // Try different possible structures for Katapult data
+      let katapultNodes: any[] = [];
+      
+      // Check if nodes exist directly
+      if (Array.isArray(this.katapultData.nodes)) {
+        console.log("DEBUG: Found nodes array in katapultData.nodes");
+        katapultNodes = this.katapultData.nodes;
+      } 
+      // Check if data is in a 'data' property
+      else if (this.katapultData.data && Array.isArray(this.katapultData.data.nodes)) {
+        console.log("DEBUG: Found nodes array in katapultData.data.nodes");
+        katapultNodes = this.katapultData.data.nodes;
+      }
+      // Check if data is in a 'features' property (common in GeoJSON)
+      else if (Array.isArray(this.katapultData.features)) {
+        console.log("DEBUG: Found features array in katapultData.features");
+        katapultNodes = this.katapultData.features;
+      }
+      // Check if the data itself is an array
+      else if (Array.isArray(this.katapultData)) {
+        console.log("DEBUG: Katapult data itself is an array");
+        katapultNodes = this.katapultData;
+      }
+      // If we still don't have nodes, try to extract from JSON
+      else {
+        console.log("DEBUG: Attempting to find poles in katapultData keys:", Object.keys(this.katapultData));
+        
+        // Search for pole data in any property that might contain arrays
+        for (const key of Object.keys(this.katapultData)) {
+          const value = this.katapultData[key];
+          if (Array.isArray(value) && value.length > 0) {
+            console.log(`DEBUG: Found array in katapultData.${key} with ${value.length} items`);
+            // Check if items have PoleNumber property
+            const hasPoleNumberProperty = value.some(item => 
+              item && 
+              (item.properties?.PoleNumber || 
+               item.PoleNumber || 
+               item.poleNumber || 
+               item.polenumber || 
+               item.pole_number)
+            );
+            
+            if (hasPoleNumberProperty) {
+              console.log(`DEBUG: Array in katapultData.${key} has items with pole number properties`);
+              katapultNodes = value;
+              break;
+            }
+          }
+        }
+      }
+      
+      console.log(`DEBUG: Found ${katapultNodes.length} potential pole nodes in Katapult data`);
+      
+      // Process the nodes
+      for (const node of katapultNodes) {
         try {
-          if (node?.properties?.PoleNumber) {
-            const canonicalPoleId = this._canonicalizePoleID(node.properties.PoleNumber);
+          if (!node) continue;
+          
+          // Try various properties where pole number might be stored
+          const poleNumber = 
+            node.properties?.PoleNumber || 
+            node.properties?.poleNumber || 
+            node.PoleNumber || 
+            node.poleNumber || 
+            node.properties?.polenumber || 
+            node.polenumber ||
+            node.properties?.pole_number || 
+            node.pole_number;
+          
+          if (poleNumber) {
+            const canonicalPoleId = this._canonicalizePoleID(poleNumber);
+            console.log(`DEBUG: Adding Katapult pole ${canonicalPoleId} to lookup map`);
             this.katapultPoleLookupMap.set(canonicalPoleId, node);
           }
         } catch (error) {
           console.warn(`Could not process Katapult node:`, error);
         }
       }
+    } catch (error) {
+      console.error("Error creating Katapult lookup map:", error);
     }
     
     console.log(`Created lookup maps: ${this.poleLookupMap.size} SPIDA poles, ${this.katapultPoleLookupMap.size} Katapult poles`);
