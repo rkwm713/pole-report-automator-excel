@@ -1,3 +1,4 @@
+
 /**
  * Service for processing SPIDA and Katapult data into Excel reports
  */
@@ -200,120 +201,46 @@ export class PoleDataProcessor {
     }
 
     try {
-      // Create worksheet
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet([]);
       
-      // Add headers
-      XLSX.utils.sheet_add_aoa(ws, [
-        ["Make Ready Report"],
-        [
-          "Operation Number", 
-          "Attachment Action:\n( I )nstalling\n( R )emoving\n( E )xisting", 
-          "Pole Owner", 
-          "Pole #", 
-          "Pole Structure", 
-          "Proposed Riser (Yes/No) &", 
-          "Proposed Guy (Yes/No) &", 
-          "PLA (%) with proposed attachment", 
-          "Construction Grade of Analysis", 
-          "Existing Mid-Span Data - Height Lowest Com", 
-          "Existing Mid-Span Data - Height Lowest CPS Electrical",
-          "Make Ready Data", 
-          "", 
-          "", 
-          ""
-        ],
-        [
-          "", "", "", "", "", "", "", "", "", "", "",
-          "Attacher Description", 
-          "Attachment Height - Existing", 
-          "Attachment Height - Proposed", 
-          "Mid-Span (same span as existing) - Proposed"
-        ]
-      ], { origin: "A1" });
+      // Add title row
+      XLSX.utils.sheet_add_aoa(ws, [["Make Ready Report"]], { origin: "A1" });
       
-      // Starting row for data
-      let rowIndex = 4;
+      // Add header rows with proper merging
+      this._addHeaderRows(ws);
+      
+      // Starting row for data (after headers)
+      let currentRow = 4;
       
       // Add data for each pole
-      this.processedPoles.forEach(pole => {
-        const firstRowOfPole = rowIndex;
+      for (const pole of this.processedPoles) {
+        const firstRowOfPole = currentRow;
         
-        // Add pole data
-        XLSX.utils.sheet_add_aoa(ws, [[
-          pole.operationNumber,
-          pole.attachmentAction,
-          pole.poleOwner,
-          pole.poleNumber,
-          pole.poleStructure,
-          pole.proposedRiser,
-          pole.proposedGuy,
-          pole.pla,
-          pole.constructionGrade,
-          pole.heightLowestCom,
-          pole.heightLowestCpsElectrical,
-          "", "", "", ""
-        ]], { origin: `A${rowIndex}` });
+        // Initial mapping of data rows
+        const endRowsBeforeFromTo = this._calculateEndRow(pole);
         
-        rowIndex++;
+        // Write pole-level data (columns A-K)
+        this._writePoleData(ws, pole, firstRowOfPole);
         
-        // Add spans and attachments
-        pole.spans.forEach(span => {
-          // Add span header
-          XLSX.utils.sheet_add_aoa(ws, [[
-            "", "", "", "", "", "", "", "", "", "", "",
-            span.spanHeader, "", "", ""
-          ]], { origin: `A${rowIndex}` });
-          
-          rowIndex++;
-          
-          // Add attachments
-          span.attachments.forEach(attachment => {
-            XLSX.utils.sheet_add_aoa(ws, [[
-              "", "", "", "", "", "", "", "", "", "", "",
-              attachment.description,
-              attachment.existingHeight,
-              attachment.proposedHeight,
-              attachment.midSpanProposed
-            ]], { origin: `A${rowIndex}` });
-            
-            rowIndex++;
-          });
-        });
+        // Write attachment data (columns L-O)
+        currentRow = this._writeAttachmentData(ws, pole, firstRowOfPole, endRowsBeforeFromTo);
         
-        // Add From/To Pole information
-        XLSX.utils.sheet_add_aoa(ws, [[
-          "", "", "", "", "", "", "", "", "", "", "",
-          "From Pole", pole.fromPole, "", ""
-        ]], { origin: `A${rowIndex}` });
+        // Merge cells for pole data (A-K columns)
+        this._mergePoleDataCells(ws, firstRowOfPole, endRowsBeforeFromTo);
         
-        rowIndex++;
+        // Add From/To Pole rows
+        currentRow = this._writeFromToPoleData(ws, pole, currentRow);
         
-        XLSX.utils.sheet_add_aoa(ws, [[
-          "", "", "", "", "", "", "", "", "", "", "",
-          "To Pole", pole.toPole, "", ""
-        ]], { origin: `A${rowIndex}` });
-        
-        rowIndex++;
-        
-        // Merge cells for pole data (A-K)
-        const lastRowOfPole = rowIndex - 3; // Before From Pole row
-        for (let col = 0; col <= 10; col++) {
-          const cellAddress = { s: { r: firstRowOfPole - 1, c: col }, e: { r: lastRowOfPole - 1, c: col } };
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push(cellAddress);
-        }
-      });
+        // Add a blank row between poles for better readability
+        currentRow++;
+      }
       
       // Set column widths
-      const colWidths = [15, 20, 15, 15, 20, 15, 15, 15, 20, 20, 20, 25, 20, 20, 20];
-      if (!ws['!cols']) ws['!cols'] = [];
-      colWidths.forEach((width, i) => {
-        ws['!cols'][i] = { wch: width };
-      });
+      this._setColumnWidths(ws);
       
-      // Create workbook
-      const wb = XLSX.utils.book_new();
+      // Add the worksheet to the workbook
       XLSX.utils.book_append_sheet(wb, ws, "Make Ready Report");
       
       // Generate file
@@ -328,6 +255,213 @@ export class PoleDataProcessor {
       });
       return null;
     }
+  }
+  
+  /**
+   * PRIVATE: Add header rows to worksheet
+   */
+  private _addHeaderRows(ws: XLSX.WorkSheet): void {
+    // Row 1 (Main Headers)
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "Operation Number",
+      "Attachment Action:\n( I )nstalling\n( R )emoving\n( E )xisting",
+      "Pole Owner",
+      "Pole #",
+      "Pole Structure", 
+      "Proposed Riser (Yes/No) &",
+      "Proposed Guy (Yes/No) &", 
+      "PLA (%) with proposed attachment",
+      "Construction Grade of Analysis",
+      "Existing Mid-Span Data", // Will be merged J1:K1
+      "", 
+      "Make Ready Data", // Will be merged L1:O1
+      "", "", ""
+    ]], { origin: "A1" });
+    
+    // Row 2 (Sub-Headers)
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "", "", "", "", "", "", "", "", "",
+      "Height Lowest Com", 
+      "Height Lowest CPS Electrical",
+      "Attachment Height", // Will be merged L2:N2
+      "", "",
+      "Mid-Span\n(same span as existing)"
+    ]], { origin: "A2" });
+    
+    // Row 3 (Lowest-Level Sub-Headers)
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "", "", "", "", "", "", "", "", "", "", "",
+      "Attacher Description",
+      "Existing",
+      "Proposed",
+      "Proposed"
+    ]], { origin: "A3" });
+    
+    // Apply cell merging for headers
+    if (!ws['!merges']) ws['!merges'] = [];
+    
+    // Merge "Existing Mid-Span Data" (J1:K1)
+    ws['!merges'].push({ s: { r: 0, c: 9 }, e: { r: 0, c: 10 } });
+    
+    // Merge "Make Ready Data" (L1:O1)
+    ws['!merges'].push({ s: { r: 0, c: 11 }, e: { r: 0, c: 14 } });
+    
+    // Merge "Attachment Height" (L2:N2)
+    ws['!merges'].push({ s: { r: 1, c: 11 }, e: { r: 1, c: 13 } });
+    
+    // Apply styling - Make header rows bold
+    if (!ws['!rows']) ws['!rows'] = [];
+    for (let i = 0; i < 3; i++) {
+      ws['!rows'][i] = { hidden: false, hpt: 20 }; // Set row height
+    }
+  }
+  
+  /**
+   * PRIVATE: Calculate end row for pole data before From/To rows
+   */
+  private _calculateEndRow(pole: PoleData): number {
+    // Count total rows needed for all spans and attachments
+    let totalRows = 0;
+    
+    // For each span group, count header + attachments
+    for (const span of pole.spans) {
+      // Add 1 for span header
+      totalRows++;
+      
+      // Add rows for each attachment in this span
+      totalRows += span.attachments.length;
+    }
+    
+    // If no rows calculated, use at least 1 row for the pole
+    return Math.max(1, totalRows);
+  }
+  
+  /**
+   * PRIVATE: Write pole-level data (columns A-K)
+   */
+  private _writePoleData(ws: XLSX.WorkSheet, pole: PoleData, row: number): void {
+    // Add pole data
+    XLSX.utils.sheet_add_aoa(ws, [[
+      pole.operationNumber,
+      pole.attachmentAction,
+      pole.poleOwner,
+      pole.poleNumber,
+      pole.poleStructure,
+      pole.proposedRiser,
+      pole.proposedGuy,
+      pole.pla,
+      pole.constructionGrade,
+      pole.heightLowestCom,
+      pole.heightLowestCpsElectrical
+    ]], { origin: `A${row}` });
+  }
+  
+  /**
+   * PRIVATE: Write attachment data (columns L-O)
+   */
+  private _writeAttachmentData(ws: XLSX.WorkSheet, pole: PoleData, startRow: number, totalRows: number): number {
+    let currentRow = startRow;
+    
+    if (pole.spans.length === 0) {
+      // If no spans, write a blank row
+      XLSX.utils.sheet_add_aoa(ws, [[
+        "", "", "", ""
+      ]], { origin: `L${currentRow}` });
+      return currentRow + 1;
+    }
+    
+    // For each span group
+    for (const span of pole.spans) {
+      // Write span header
+      XLSX.utils.sheet_add_aoa(ws, [[
+        span.spanHeader, "", "", ""
+      ]], { origin: `L${currentRow}` });
+      
+      currentRow++;
+      
+      // Write attachments
+      for (const attachment of span.attachments) {
+        XLSX.utils.sheet_add_aoa(ws, [[
+          attachment.description,
+          attachment.existingHeight,
+          attachment.proposedHeight,
+          attachment.midSpanProposed
+        ]], { origin: `L${currentRow}` });
+        
+        currentRow++;
+      }
+    }
+    
+    return currentRow;
+  }
+  
+  /**
+   * PRIVATE: Merge cells for pole data (A-K)
+   */
+  private _mergePoleDataCells(ws: XLSX.WorkSheet, startRow: number, rowCount: number): void {
+    if (rowCount <= 1) return; // No need to merge if only one row
+    
+    if (!ws['!merges']) ws['!merges'] = [];
+    
+    // Merge cells for each column A through K
+    for (let col = 0; col < 11; col++) {
+      ws['!merges'].push({
+        s: { r: startRow - 1, c: col },
+        e: { r: startRow + rowCount - 2, c: col }
+      });
+    }
+  }
+  
+  /**
+   * PRIVATE: Write From/To Pole data
+   */
+  private _writeFromToPoleData(ws: XLSX.WorkSheet, pole: PoleData, currentRow: number): number {
+    // Add "From Pole" row
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "", "", "", "", "", "", "", "", "", "", "",
+      "From Pole", pole.fromPole, "", ""
+    ]], { origin: `A${currentRow}` });
+    
+    currentRow++;
+    
+    // Add "To Pole" row
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "", "", "", "", "", "", "", "", "", "", "",
+      "To Pole", pole.toPole, "", ""
+    ]], { origin: `A${currentRow}` });
+    
+    return currentRow + 1;
+  }
+  
+  /**
+   * PRIVATE: Set column widths
+   */
+  private _setColumnWidths(ws: XLSX.WorkSheet): void {
+    if (!ws['!cols']) ws['!cols'] = [];
+    
+    // Set specific widths for each column
+    const colWidths = [
+      15, // A: Operation Number
+      20, // B: Attachment Action
+      15, // C: Pole Owner
+      15, // D: Pole #
+      25, // E: Pole Structure (wider)
+      17, // F: Proposed Riser
+      17, // G: Proposed Guy
+      15, // H: PLA (%)
+      20, // I: Construction Grade
+      20, // J: Height Lowest Com
+      20, // K: Height Lowest CPS Electrical
+      30, // L: Attacher Description (wider)
+      15, // M: Existing
+      15, // N: Proposed
+      20, // O: Mid-Span Proposed
+    ];
+    
+    // Apply column widths
+    colWidths.forEach((width, i) => {
+      ws['!cols'][i] = { wch: width };
+    });
   }
 
   /**
