@@ -1,4 +1,3 @@
-
 /**
  * Enhanced fixes for the PoleDataProcessor class
  * This file contains monkey patching functions that fix specific issues with the Excel output
@@ -168,15 +167,34 @@ export function fixFromToPoleRows(poleDataProcessor: any) {
       connection.node_id_2 : connection.node_id_1;
     
     // Look up the pole number for this connected pole
-    if (connectedPoleId && this.katapultData.nodes && this.katapultData.nodes[connectedPoleId]) {
-      const connectedPoleNode = this.katapultData.nodes[connectedPoleId];
+    if (connectedPoleId && this.katapultData.nodes) {
+      // Check if nodes has the connectedPoleId as a key
+      const nodes = this.katapultData.nodes as Record<string, any>;
+      if (!(connectedPoleId in nodes)) {
+        return null;
+      }
+      
+      const connectedPoleNode = nodes[connectedPoleId];
+      if (!connectedPoleNode || typeof connectedPoleNode !== 'object') {
+        return null;
+      }
       
       // Try different possible locations for pole number in Katapult data
-      return (connectedPoleNode.attributes && connectedPoleNode.attributes.PoleNumber && 
-              connectedPoleNode.attributes.PoleNumber.assessment) || 
-             (connectedPoleNode.attributes && connectedPoleNode.attributes.pole_tag && 
-              connectedPoleNode.attributes.pole_tag.tagtext) || 
-             connectedPoleId;
+      if (connectedPoleNode.attributes && typeof connectedPoleNode.attributes === 'object') {
+        if ('PoleNumber' in connectedPoleNode.attributes && 
+            connectedPoleNode.attributes.PoleNumber && 
+            typeof connectedPoleNode.attributes.PoleNumber === 'object' &&
+            'assessment' in connectedPoleNode.attributes.PoleNumber) {
+          return connectedPoleNode.attributes.PoleNumber.assessment;
+        } else if ('pole_tag' in connectedPoleNode.attributes && 
+                  connectedPoleNode.attributes.pole_tag && 
+                  typeof connectedPoleNode.attributes.pole_tag === 'object' &&
+                  'tagtext' in connectedPoleNode.attributes.pole_tag) {
+          return connectedPoleNode.attributes.pole_tag.tagtext;
+        }
+      }
+      
+      return connectedPoleId;
     }
     
     return null;
