@@ -1,10 +1,8 @@
-
 /**
  * Service for loading SPIDA and Katapult data
  */
-import { ProcessingError } from "../types/poleTypes";
-import { canonicalizePoleID } from "../utils/poleUtils";
-import { KatapultMidspanData } from "../types/poleTypes";
+import { ProcessingError, KatapultMidspanData } from "../types/poleTypes";
+import { canonicalizePoleID, formatHeightValue, metersToFeetInches } from "../utils/poleUtils";
 
 export class PoleDataLoader {
   private spidaData: any;

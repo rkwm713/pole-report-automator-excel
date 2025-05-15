@@ -1,4 +1,3 @@
-
 /**
  * Service for processing SPIDA and Katapult data into Excel reports
  */
@@ -6,6 +5,9 @@ import { PoleData, ProcessingError } from './types/poleTypes';
 import { PoleDataLoader } from './dataLoader/poleDataLoader';
 import { PoleDataExtractor } from './dataExtractor/poleDataExtractor';
 import { PoleExcelGenerator } from './excelGenerator/poleExcelGenerator';
+
+// Re-export the types that are used by other components
+export { PoleData, SpanData, AttachmentData, ProcessingError } from './types/poleTypes';
 
 /**
  * Main class for processing pole data
