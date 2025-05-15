@@ -5,7 +5,7 @@
  */
 
 // Import the original processor if available
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "@/hooks/use-toast";
 
 // Function to override the pole owner extraction
 export function overridePoleOwner() {
