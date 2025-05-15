@@ -1,3 +1,4 @@
+
 #!/usr/bin/env node
 
 /**
@@ -31,12 +32,14 @@ console.log('1. Fixed _calculateEndRow to include From/To Pole rows');
 console.log('2. Enhanced _writeAttachmentData for proper row alignment');
 console.log('3. Fixed height extraction from Katapult data');
 console.log('4. Improved wire matching for midspan calculations');
+console.log('5. Added heightCalculator utility for consistent height formatting');
+console.log('6. Added poleDataProcessorFix to patch the processor with fixes');
 
 console.log('\n----- Files Modified -----');
-console.log('• src/services/poleDataProcessor.ts - Core fixes');
-console.log('• src/utils/demoDataGenerator.ts - Created for testing');
-console.log('• src/test-fixed-excel-output.ts - Test script');
-console.log('• docs/make-ready-report-fixes.md - Documentation');
+console.log('• src/services/poleDataProcessorFix.ts - Core fixes as patches');
+console.log('• src/utils/heightCalculator.ts - Centralized height utilities');
+console.log('• src/test-fixed-excel-output.ts - Updated test script');
+console.log('• run-excel-test.js - This summary script');
 
 console.log('\nDo you want to run the test now? [y/n]');
 process.stdin.setRawMode(true);

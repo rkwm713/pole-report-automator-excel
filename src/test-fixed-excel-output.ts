@@ -1,3 +1,4 @@
+
 /**
  * Test script to verify the fixed Make-Ready Report Excel output
  * This script focuses on testing the fixes for:
@@ -6,6 +7,7 @@
  * 3. Column O (Midspan Proposed)
  */
 import { PoleDataProcessor } from './services/poleDataProcessor';
+import { applyAllFixes } from './services/poleDataProcessorFix';
 import { generateDemoSpidaData, generateDemoKatapultData } from './utils/demoDataGenerator';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,6 +19,9 @@ async function runTest() {
 
   // Create a new processor instance
   const processor = new PoleDataProcessor();
+  
+  // Apply the fixes to the processor instance
+  applyAllFixes(processor);
 
   try {
     let spidaData: string;
