@@ -2,7 +2,7 @@
 /**
  * Service for processing SPIDA and Katapult data into Excel reports
  */
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 
 // Types for data structures
 export interface PoleData {
