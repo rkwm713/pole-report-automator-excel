@@ -397,7 +397,8 @@ export class PoleDataProcessor {
   }
   
   /**
-   * PRIVATE: Calculate end row for pole data before From/To rows
+   * PRIVATE: Calculate end row for pole data including From/To rows
+   * FIXED to properly account for From/To Pole rows in the total row count
    */
   private _calculateEndRow(pole: PoleData): number {
     // Count total rows needed for all spans and attachments
@@ -412,8 +413,11 @@ export class PoleDataProcessor {
       totalRows += span.attachments.length;
     }
     
-    // If no rows calculated, use at least 1 row for the pole
-    return Math.max(1, totalRows);
+    // Add 2 rows for From/To Pole information
+    totalRows += 2;
+    
+    // If no rows calculated, use at least 3 rows (1 for wire data + 2 for From/To)
+    return Math.max(3, totalRows);
   }
   
   /**
@@ -494,7 +498,7 @@ export class PoleDataProcessor {
   
   /**
    * PRIVATE: Write attachment data (columns L-O)
-   * UPDATED to properly handle formatting rules for existing/proposed heights
+   * FIXED to properly handle formatting rules and ensure proper row alignment with From/To Pole rows
    */
   private _writeAttachmentData(ws: XLSX.WorkSheet, pole: PoleData, startRow: number, totalRows: number): number {
     let currentRow = startRow;
@@ -504,46 +508,63 @@ export class PoleDataProcessor {
       XLSX.utils.sheet_add_aoa(ws, [[
         "", "", "", ""
       ]], { origin: `L${currentRow}` });
-      return currentRow + 1;
-    }
-    
-    // For each span group
-    for (const span of pole.spans) {
-      // Write span header with enhanced formatting
-      XLSX.utils.sheet_add_aoa(ws, [[
-        span.spanHeader, "", "", ""
-      ]], { origin: `L${currentRow}` });
-      
-      // Apply bold formatting to span header
-      const cellRef = `L${currentRow}`;
-      if (!ws[cellRef]) ws[cellRef] = { v: span.spanHeader };
-      if (!ws[cellRef].s) ws[cellRef].s = {};
-      ws[cellRef].s.font = { bold: true };
-      
-      // Move to next row
       currentRow++;
-      
-      // Write attachments
-      for (const attachment of span.attachments) {
-        // Format proposed height according to rules:
-        // - If proposed height is different from existing, show it
-        // - If same as existing or empty, leave blank
-        const proposedHeight = attachment.proposedHeight && 
-                              attachment.proposedHeight !== attachment.existingHeight ? 
-                              attachment.proposedHeight : "";
-        
-        // Write attachment data
+    } else {
+      // For each span group
+      for (const span of pole.spans) {
+        // Write span header with enhanced formatting
         XLSX.utils.sheet_add_aoa(ws, [[
-          attachment.description,
-          attachment.existingHeight,
-          proposedHeight,
-          attachment.midSpanProposed
+          span.spanHeader, "", "", ""
         ]], { origin: `L${currentRow}` });
         
-        // Log for debugging
-        console.log(`DEBUG: Writing attachment: ${attachment.description}, existing: ${attachment.existingHeight}, proposed: ${proposedHeight}, midspan: ${attachment.midSpanProposed}`);
+        // Apply bold formatting to span header
+        const cellRef = `L${currentRow}`;
+        if (!ws[cellRef]) ws[cellRef] = { v: span.spanHeader };
+        if (!ws[cellRef].s) ws[cellRef].s = {};
+        ws[cellRef].s.font = { bold: true };
         
         // Move to next row
+        currentRow++;
+        
+        // Write attachments
+        for (const attachment of span.attachments) {
+          // Format proposed height according to rules:
+          // - If proposed height is different from existing, show it
+          // - If same as existing or empty, leave blank
+          const proposedHeight = attachment.proposedHeight && 
+                                attachment.proposedHeight !== attachment.existingHeight ? 
+                                attachment.proposedHeight : "";
+          
+          // Write attachment data
+          XLSX.utils.sheet_add_aoa(ws, [[
+            attachment.description,
+            attachment.existingHeight,
+            proposedHeight,
+            attachment.midSpanProposed
+          ]], { origin: `L${currentRow}` });
+          
+          // Log for debugging
+          console.log(`DEBUG: Writing attachment: ${attachment.description}, existing: ${attachment.existingHeight}, proposed: ${proposedHeight}, midspan: ${attachment.midSpanProposed}`);
+          
+          // Move to next row
+          currentRow++;
+        }
+      }
+    }
+    
+    // Calculate rows to skip to align with From/To rows
+    // Remember that From/To rows should be the last 2 rows of the pole section
+    const expectedEndRow = startRow + totalRows - 2; // -2 because From/To takes 2 rows
+    
+    // Add blank rows if needed to ensure From/To Pole rows are at the end
+    if (currentRow < expectedEndRow) {
+      console.log(`DEBUG: Adding ${expectedEndRow - currentRow} blank rows to align with From/To Pole rows`);
+      
+      // Add blank rows if needed
+      while (currentRow < expectedEndRow) {
+        XLSX.utils.sheet_add_aoa(ws, [[
+          "", "", "", ""
+        ]], { origin: `L${currentRow}` });
         currentRow++;
       }
     }
