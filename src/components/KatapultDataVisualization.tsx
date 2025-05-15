@@ -20,8 +20,37 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WireCategory, formatHeightToString } from '@/utils/katapultDataProcessor';
 
+// Define interfaces for our data structures
+interface WireData {
+  traceId: string;
+  company: string;
+  cableType: string;
+  category: WireCategory;
+  midspanObservations: Array<{
+    originalHeightInches: number;
+    proposedHeightInches: number | null;
+  }>;
+  lowestExistingMidspanHeight: number | null;
+  finalProposedMidspanHeight: number | null;
+  lowestExistingPoleAttachmentHeight: number | null;
+  finalProposedPoleAttachmentHeight: number | null;
+}
+
+interface ConnectionData {
+  connectionId: string;
+  fromPoleId: string;
+  toPoleId: string | null;
+  buttonType: string;
+  isRefConnection: boolean;
+  wires: Record<string, WireData>;
+}
+
+interface ProcessedData {
+  connections: ConnectionData[];
+}
+
 interface KatapultDataVisualizationProps {
-  data: any;
+  data: ProcessedData;
 }
 
 const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ data }) => {
@@ -41,7 +70,7 @@ const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ d
   
   // Count wires by category
   connections.forEach(connection => {
-    Object.values(connection.wires).forEach(wire => {
+    Object.values(connection.wires).forEach((wire: WireData) => {
       if (wire.category) {
         wireCounts[wire.category]++;
       }
@@ -102,7 +131,7 @@ const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ d
               <CardContent>
                 <p className="text-2xl font-bold">
                   {connections.reduce((count, connection) => {
-                    return count + Object.values(connection.wires).filter(wire => 
+                    return count + Object.values(connection.wires).filter((wire: WireData) => 
                       wire.finalProposedMidspanHeight !== null || 
                       wire.finalProposedPoleAttachmentHeight !== null
                     ).length;
@@ -168,7 +197,7 @@ const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ d
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {Object.values(connection.wires).map((wire: any) => (
+                        {Object.values(connection.wires).map((wire: WireData) => (
                           <TableRow key={wire.traceId}>
                             <TableCell>{wire.company}</TableCell>
                             <TableCell>{wire.cableType}</TableCell>
@@ -266,7 +295,7 @@ const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ d
             </TableHeader>
             <TableBody>
               {connections.flatMap(connection => 
-                Object.values(connection.wires).map((wire: any) => (
+                Object.values(connection.wires).map((wire: WireData) => (
                   <TableRow key={`${connection.connectionId}-${wire.traceId}`}>
                     <TableCell>{wire.company}</TableCell>
                     <TableCell>{wire.cableType}</TableCell>
@@ -306,7 +335,7 @@ const KatapultDataVisualization: React.FC<KatapultDataVisualizationProps> = ({ d
 };
 
 // Helper function to get all wires of a specific category
-function getAllWiresByCategory(connections, category: WireCategory) {
+function getAllWiresByCategory(connections: ConnectionData[], category: WireCategory): WireData[] {
   return connections.flatMap(connection => 
     Object.values(connection.wires).filter(wire => wire.category === category)
   );

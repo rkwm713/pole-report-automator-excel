@@ -2,12 +2,41 @@
 import * as XLSX from 'xlsx';
 import { WireCategory, formatHeightToString } from '@/utils/katapultDataProcessor';
 
+// Define interfaces for our data structures
+interface WireData {
+  traceId: string;
+  company: string;
+  cableType: string;
+  category: WireCategory;
+  midspanObservations: Array<{
+    originalHeightInches: number;
+    proposedHeightInches: number | null;
+  }>;
+  lowestExistingMidspanHeight: number | null;
+  finalProposedMidspanHeight: number | null;
+  lowestExistingPoleAttachmentHeight: number | null;
+  finalProposedPoleAttachmentHeight: number | null;
+}
+
+interface ConnectionData {
+  connectionId: string;
+  fromPoleId: string;
+  toPoleId: string | null;
+  buttonType: string;
+  isRefConnection: boolean;
+  wires: Record<string, WireData>;
+}
+
+interface ProcessedData {
+  connections: ConnectionData[];
+}
+
 /**
  * Generates and downloads an Excel file with the analysis of Katapult data
  * @param processedData - The processed Katapult data
  * @param rawKatapultData - The raw Katapult JSON data
  */
-export function downloadKatapultAnalysisExcel(processedData: any, rawKatapultData: any) {
+export function downloadKatapultAnalysisExcel(processedData: ProcessedData, rawKatapultData: any) {
   // Create a new workbook
   const workbook = XLSX.utils.book_new();
   
@@ -26,7 +55,7 @@ export function downloadKatapultAnalysisExcel(processedData: any, rawKatapultDat
  * @param workbook - The Excel workbook
  * @param data - The processed Katapult data
  */
-function addSummarySheet(workbook: XLSX.WorkBook, data: any) {
+function addSummarySheet(workbook: XLSX.WorkBook, data: ProcessedData) {
   const connections = data.connections || [];
   const totalConnections = connections.length;
   const refConnections = connections.filter(c => c.isRefConnection).length;
@@ -44,7 +73,7 @@ function addSummarySheet(workbook: XLSX.WorkBook, data: any) {
   let proposedChanges = 0;
   
   connections.forEach(connection => {
-    Object.values(connection.wires).forEach(wire => {
+    Object.values(connection.wires).forEach((wire: WireData) => {
       if (wire.category) {
         wireCounts[wire.category]++;
         wireCounts.total++;
@@ -82,7 +111,7 @@ function addSummarySheet(workbook: XLSX.WorkBook, data: any) {
  * @param workbook - The Excel workbook
  * @param data - The processed Katapult data
  */
-function addConnectionsSheet(workbook: XLSX.WorkBook, data: any) {
+function addConnectionsSheet(workbook: XLSX.WorkBook, data: ProcessedData) {
   const connections = data.connections || [];
   
   // Create connections header
@@ -119,7 +148,7 @@ function addConnectionsSheet(workbook: XLSX.WorkBook, data: any) {
  * @param workbook - The Excel workbook
  * @param data - The processed Katapult data
  */
-function addWireDataSheet(workbook: XLSX.WorkBook, data: any) {
+function addWireDataSheet(workbook: XLSX.WorkBook, data: ProcessedData) {
   const connections = data.connections || [];
   
   // Create wire data header
@@ -138,7 +167,7 @@ function addWireDataSheet(workbook: XLSX.WorkBook, data: any) {
   
   // Create wire data
   const wireData = connections.flatMap(connection => 
-    Object.values(connection.wires).map((wire: any) => {
+    Object.values(connection.wires).map((wire: WireData) => {
       const hasProposedChange = wire.finalProposedMidspanHeight !== null && 
                                wire.lowestExistingMidspanHeight !== null && 
                                wire.finalProposedMidspanHeight !== wire.lowestExistingMidspanHeight;
@@ -172,7 +201,7 @@ function addWireDataSheet(workbook: XLSX.WorkBook, data: any) {
  * @param workbook - The Excel workbook
  * @param data - The processed Katapult data
  */
-function addRefConnectionsSheet(workbook: XLSX.WorkBook, data: any) {
+function addRefConnectionsSheet(workbook: XLSX.WorkBook, data: ProcessedData) {
   const refConnections = data.connections.filter(c => c.isRefConnection) || [];
   
   if (refConnections.length === 0) {
@@ -199,7 +228,7 @@ function addRefConnectionsSheet(workbook: XLSX.WorkBook, data: any) {
   
   // Create REF connections data
   const refConnectionsData = refConnections.flatMap(connection => 
-    Object.values(connection.wires).map((wire: any) => {
+    Object.values(connection.wires).map((wire: WireData) => {
       const hasProposedChange = wire.finalProposedPoleAttachmentHeight !== null && 
                                wire.lowestExistingPoleAttachmentHeight !== null && 
                                wire.finalProposedPoleAttachmentHeight !== wire.lowestExistingPoleAttachmentHeight;
