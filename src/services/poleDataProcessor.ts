@@ -1434,29 +1434,30 @@ export class PoleDataProcessor {
       // Log the Katapult node ID for debugging
       console.log(`DEBUG: Found Katapult node ID: ${katapultNodeId}`);
       
-      // Find all connections involving this pole
+      // Find ALL connections involving this pole (including REF connections)
       const poleConnections = processedKatapultData.connections.filter(connection => 
         connection.fromPoleId === katapultNodeId || 
-        connection.toPoleId === katapultNodeId
+        connection.toPoleId === katapultNodeId ||
+        // Also match if node ID is a substring or vice versa - handles prefix/suffix variations
+        connection.fromPoleId.includes(katapultNodeId) || 
+        connection.toPoleId.includes(katapultNodeId) ||
+        katapultNodeId.includes(connection.fromPoleId) || 
+        katapultNodeId.includes(connection.toPoleId)
       );
       
       console.log(`DEBUG: Found ${poleConnections.length} connections for pole ${poleNumber}`);
       
       // Iterate through each connection
       for (const connection of poleConnections) {
-        // Focus on aerial connections (most relevant for midspan)
-        if (connection.buttonType !== 'aerial_path' && !connection.buttonType.includes('aerial')) {
-          console.log(`DEBUG: Skipping non-aerial connection: ${connection.buttonType}`);
-          continue;
-        }
-        
-        console.log(`DEBUG: Processing aerial connection ${connection.connectionId}`);
+        // Include ALL connection types, including REF connections, underground, etc.
+        // We want the absolute lowest midspan height for any type of connection
+        console.log(`DEBUG: Processing connection ${connection.connectionId} (${connection.buttonType})`);
         
         // Process each wire in the connection
         for (const wireId in connection.wires) {
           const wire = connection.wires[wireId];
           
-          // Skip wires with no midspan height
+          // Only skip wires with no midspan height data at all
           if (wire.lowestExistingMidspanHeight === null) {
             continue;
           }
@@ -1623,8 +1624,12 @@ private _getMidSpanProposedHeight(
   poleHasAttachmentChanges: boolean = false
 ): string {
   try {
-    // REMOVED: The condition that was forcing "N/A" for all wires if pole has no attachment changes
-    // This change allows mid-span data to be displayed even if the pole attachments themselves haven't changed
+    // FIXED: Implement the rule - Column O should be N/A if pole has no attachment changes
+    // Check poleHasAttachmentChanges flag first and return "N/A" if false
+    if (!poleHasAttachmentChanges) {
+      console.log(`DEBUG: Pole has no attachment changes, returning "N/A" for mid-span height`);
+      return "N/A";
+    }
     
     // Skip if no Katapult data available
     if (!this.katapultData) {
