@@ -2,6 +2,7 @@
  * Service for processing SPIDA and Katapult data into Excel reports
  */
 import * as XLSX from 'xlsx';
+import { processKatapultData, formatHeightToString, WireCategory } from '../utils/katapultDataProcessor';
 
 // Types for data structures
 export interface PoleData {
@@ -222,7 +223,7 @@ export class PoleDataProcessor {
       // Add title row
       XLSX.utils.sheet_add_aoa(ws, [["Make Ready Report"]], { origin: "A1" });
       
-      // Add header rows with proper merging
+      // Add header rows with proper merging and styling (dark blue with text wrapping)
       this._addHeaderRows(ws);
       
       // Starting row for data (after headers)
@@ -236,7 +237,7 @@ export class PoleDataProcessor {
         const endRowsBeforeFromTo = this._calculateEndRow(pole);
         
         // Write pole-level data (columns A-K), including From/To Pole in columns J and K
-        this._writePoleData(ws, pole, firstRowOfPole);
+        this._writePoleData(ws, pole, firstRowOfPole, endRowsBeforeFromTo);
         
         // Write attachment data (columns L-O)
         currentRow = this._writeAttachmentData(ws, pole, firstRowOfPole, endRowsBeforeFromTo);
@@ -248,14 +249,18 @@ export class PoleDataProcessor {
         currentRow++;
       }
       
-      // Set column widths
-      this._setColumnWidths(ws);
-      
       // Add the worksheet to the workbook
       XLSX.utils.book_append_sheet(wb, ws, "Make Ready Report");
       
-      // Generate file
-      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      // Generate file with style information preserved
+      // Note: The XLSX library has limitations with styling, but we've applied the basic style properties
+      // For a more comprehensive styling solution, xlsx-style or similar libraries would be needed
+      const excelBuffer = XLSX.write(wb, { 
+        bookType: 'xlsx', 
+        type: 'array',
+        cellStyles: true // Attempt to preserve cell styles when possible
+      });
+      
       return new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     } catch (error) {
       console.error("Error generating Excel:", error);
@@ -293,8 +298,8 @@ export class PoleDataProcessor {
     // Row 2 (Sub-Headers)
     XLSX.utils.sheet_add_aoa(ws, [[
       "", "", "", "", "", "", "", "", "",
-      "Height Lowest Com", 
-      "Height Lowest CPS Electrical",
+      "", 
+      "",
       "Attachment Height", // Will be merged L2:N2
       "", "",
       "Mid-Span\n(same span as existing)"
@@ -302,7 +307,9 @@ export class PoleDataProcessor {
     
     // Row 3 (Lowest-Level Sub-Headers)
     XLSX.utils.sheet_add_aoa(ws, [[
-      "", "", "", "", "", "", "", "", "", "", "",
+      "", "", "", "", "", "", "", "", "",
+      "Height Lowest Com", 
+      "Height Lowest CPS Electrical",
       "Attacher Description",
       "Existing",
       "Proposed",
@@ -311,6 +318,11 @@ export class PoleDataProcessor {
     
     // Apply cell merging for headers
     if (!ws['!merges']) ws['!merges'] = [];
+    
+    // Merge rows 1-3 for columns A-I vertically (as requested)
+    for (let col = 0; col < 9; col++) {
+      ws['!merges'].push({ s: { r: 0, c: col }, e: { r: 2, c: col } });
+    }
     
     // Merge "Existing Mid-Span Data" (J1:K1)
     ws['!merges'].push({ s: { r: 0, c: 9 }, e: { r: 0, c: 10 } });
@@ -321,22 +333,67 @@ export class PoleDataProcessor {
     // Merge "Attachment Height" (L2:N2)
     ws['!merges'].push({ s: { r: 1, c: 11 }, e: { r: 1, c: 13 } });
     
+    // Create cell styling for the worksheet
+    if (!ws['!cols']) ws['!cols'] = [];
+    
+    // Set column widths
+    for (let i = 0; i < 15; i++) {
+      // Default width for all columns
+      ws['!cols'][i] = { wch: 15 };
+    }
+    
+    // Set specific widths for columns that need more space
+    ws['!cols'][1] = { wch: 25 }; // Attachment Action column wider
+    ws['!cols'][7] = { wch: 20 }; // PLA column
+    ws['!cols'][8] = { wch: 20 }; // Construction Grade column
+    ws['!cols'][11] = { wch: 30 }; // Attacher Description column wider
+    
     // Apply enhanced styling for header rows
-    // Note: XLSX doesn't support extensive styling, 
-    // but we can set basic properties
-
-    // Set bold for headers (via XLSX utils limited formatting)
     if (!ws['!rows']) ws['!rows'] = [];
     for (let i = 0; i < 3; i++) {
-      // Set row heights a bit taller for headers
+      // Set row heights taller for headers
       ws['!rows'][i] = { hidden: false, hpt: 25 }; // hpt = height in points
     }
-
-    // Enable text wrapping and center alignment for header cells
-    // Note: .xlsx format has limited style control via XLSX library
-    // Typically this would be done with .s property for cell styles
-    // But XLSX.utils.aoa_to_sheet doesn't fully support this
-    // In a full implementation, we'd apply xlsx-style or similar
+    
+    // Apply cell styles (dark blue fill with text wrapping for A1-I3)
+    if (!ws.A1) ws.A1 = { v: "Operation Number" };
+    if (!ws.A1.s) ws.A1.s = {};
+    
+    // Apply formatting to all header cells in columns A-I, rows 1-3
+    const darkBlue = { fgColor: { rgb: "1F4E78" } }; // Dark blue color (Text 2)
+    
+    // Helper function to get cell reference
+    const getCellRef = (col: number, row: number): string => {
+      const colLetter = String.fromCharCode(65 + col); // 65 is ASCII for 'A'
+      return `${colLetter}${row + 1}`;
+    };
+    
+    // Apply styles to all cells in the A1:I3 range
+    for (let col = 0; col < 9; col++) {
+      for (let row = 0; row < 3; row++) {
+        const cellRef = getCellRef(col, row);
+        if (!ws[cellRef]) ws[cellRef] = { v: "" };
+        if (!ws[cellRef].s) ws[cellRef].s = {};
+        
+        // Apply dark blue fill
+        ws[cellRef].s.fill = darkBlue;
+        
+        // Apply text wrapping
+        ws[cellRef].s.alignment = { 
+          vertical: "center", 
+          horizontal: "center", 
+          wrapText: true 
+        };
+        
+        // Apply white font color for better contrast
+        ws[cellRef].s.font = { 
+          color: { rgb: "FFFFFF" }, 
+          bold: true 
+        };
+      }
+    }
+    
+    console.log("DEBUG: Applied dark blue fill and text wrapping to header cells A1:I3");
   }
   
   /**
@@ -361,10 +418,10 @@ export class PoleDataProcessor {
   
   /**
    * PRIVATE: Write pole-level data (columns A-K)
-   * UPDATED to include From/To Pole data in columns J and K
+   * UPDATED to include From/To Pole data in columns J and K in the correct format
    */
-  private _writePoleData(ws: XLSX.WorkSheet, pole: PoleData, row: number): void {
-    // Add pole data with From/To Pole in columns J and K
+  private _writePoleData(ws: XLSX.WorkSheet, pole: PoleData, row: number, totalRows: number): void {
+    // Add pole data for columns A-I
     XLSX.utils.sheet_add_aoa(ws, [[
       pole.operationNumber,
       pole.attachmentAction,
@@ -375,9 +432,47 @@ export class PoleDataProcessor {
       pole.proposedGuy,
       pole.pla,
       pole.constructionGrade,
-      pole.fromPole,  // From Pole in column J
-      pole.toPole     // To Pole in column K
+      "",  // We'll handle J and K (Height Lowest Com/CPS) separately
+      ""
     ]], { origin: `A${row}` });
+    
+    // Write Height Lowest Com and Height Lowest CPS Electrical in the first row
+    XLSX.utils.sheet_add_aoa(ws, [[
+      pole.heightLowestCom,
+      pole.heightLowestCpsElectrical
+    ]], { origin: `J${row}` });
+    
+    // Calculate the row numbers for From/To pole headers and values
+    // The headers should be in the 2nd to last row of the pole section
+    // The values should be in the last row of the pole section
+    const fromToHeaderRow = row + totalRows - 2;
+    const fromToValueRow = row + totalRows - 1;
+    
+    // Write "From pole" and "To pole" headers in the 2nd to last row
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "From pole",
+      "To pole"
+    ]], { origin: `J${fromToHeaderRow}` });
+    
+    // Write the actual from/to pole values in the last row
+    XLSX.utils.sheet_add_aoa(ws, [[
+      pole.fromPole,
+      pole.toPole
+    ]], { origin: `J${fromToValueRow}` });
+    
+    // Format the header cells
+    ["J", "K"].forEach(col => {
+      const headerCellRef = `${col}${fromToHeaderRow}`;
+      if (!ws[headerCellRef]) ws[headerCellRef] = { v: col === "J" ? "From pole" : "To pole" };
+      if (!ws[headerCellRef].s) ws[headerCellRef].s = {};
+      
+      // Apply bold styling to the header cells
+      ws[headerCellRef].s.font = { bold: true };
+      ws[headerCellRef].s.alignment = { 
+        vertical: "center", 
+        horizontal: "center" 
+      };
+    });
     
     // Log the data being written for debugging
     console.log(`DEBUG: Writing pole data to Excel:`, {
@@ -388,14 +483,18 @@ export class PoleDataProcessor {
       poleStructure: pole.poleStructure,
       pla: pole.pla,
       constructionGrade: pole.constructionGrade,
+      heightLowestCom: pole.heightLowestCom,
+      heightLowestCpsElectrical: pole.heightLowestCpsElectrical,
       fromPole: pole.fromPole,
-      toPole: pole.toPole
+      toPole: pole.toPole,
+      fromToHeaderRow,
+      fromToValueRow
     });
   }
   
   /**
    * PRIVATE: Write attachment data (columns L-O)
-   * UPDATED to start from column L now that From/To are in J-K
+   * UPDATED to properly handle formatting rules for existing/proposed heights
    */
   private _writeAttachmentData(ws: XLSX.WorkSheet, pole: PoleData, startRow: number, totalRows: number): number {
     let currentRow = startRow;
@@ -415,21 +514,34 @@ export class PoleDataProcessor {
         span.spanHeader, "", "", ""
       ]], { origin: `L${currentRow}` });
       
+      // Apply bold formatting to span header
+      const cellRef = `L${currentRow}`;
+      if (!ws[cellRef]) ws[cellRef] = { v: span.spanHeader };
+      if (!ws[cellRef].s) ws[cellRef].s = {};
+      ws[cellRef].s.font = { bold: true };
+      
       // Move to next row
       currentRow++;
       
       // Write attachments
       for (const attachment of span.attachments) {
+        // Format proposed height according to rules:
+        // - If proposed height is different from existing, show it
+        // - If same as existing or empty, leave blank
+        const proposedHeight = attachment.proposedHeight && 
+                              attachment.proposedHeight !== attachment.existingHeight ? 
+                              attachment.proposedHeight : "";
+        
         // Write attachment data
         XLSX.utils.sheet_add_aoa(ws, [[
           attachment.description,
           attachment.existingHeight,
-          attachment.proposedHeight,
+          proposedHeight,
           attachment.midSpanProposed
         ]], { origin: `L${currentRow}` });
         
         // Log for debugging
-        console.log(`DEBUG: Writing attachment: ${attachment.description}, existing: ${attachment.existingHeight}, proposed: ${attachment.proposedHeight}`);
+        console.log(`DEBUG: Writing attachment: ${attachment.description}, existing: ${attachment.existingHeight}, proposed: ${proposedHeight}, midspan: ${attachment.midSpanProposed}`);
         
         // Move to next row
         currentRow++;
@@ -506,6 +618,159 @@ export class PoleDataProcessor {
    */
   getProcessedPoleCount(): number {
     return this.processedPoles.length;
+  }
+  
+  /**
+   * Test method for generating sample data to verify columns L-O implementation
+   * This is useful for debugging and verifying the REF connection logic works correctly
+   */
+  generateSampleLtoOData(): PoleData {
+    // Create a sample pole with attachments to test column L-O logic
+    const pole: PoleData = {
+      operationNumber: 1,
+      attachmentAction: "( E )xisting",
+      poleOwner: "CPS",
+      poleNumber: "PL410620",
+      poleStructure: "40-4 Southern Pine",
+      proposedRiser: "NO",
+      proposedGuy: "NO",
+      pla: "85.2%",
+      constructionGrade: "Grade C",
+      heightLowestCom: "22'-3\"",
+      heightLowestCpsElectrical: "28'-6\"",
+      fromPole: "PL410620",
+      toPole: "PL398491",
+      spans: []
+    };
+    
+    // Add a normal span with a mix of attachments
+    pole.spans.push({
+      spanHeader: "Ref to PL398491",
+      attachments: [
+        // Wire with both existing and proposed heights
+        {
+          description: "CPS Neutral",
+          existingHeight: "32'-6\"", 
+          proposedHeight: "33'-0\"", // Different from existing
+          midSpanProposed: "30'-2\"" // Proposed height available
+        },
+        // Wire with same existing and proposed (should show blank for proposed)
+        {
+          description: "CPS Primary",
+          existingHeight: "35'-0\"",
+          proposedHeight: "35'-0\"", // Same as existing, should be blank in Excel
+          midSpanProposed: "33'-4\""
+        },
+        // Wire with only existing (should have parentheses for midspan)
+        {
+          description: "AT&T Fiber Optic Com",
+          existingHeight: "25'-3\"",
+          proposedHeight: "", // No proposed height
+          midSpanProposed: "(22'-10\")" // Existing height in parentheses
+        },
+      ]
+    });
+    
+    // Add a REF connection with special midspan handling
+    pole.spans.push({
+      spanHeader: "Ref (NE) to service pole",
+      attachments: [
+        // REF connection with proposed height
+        {
+          description: "CPS Service",
+          existingHeight: "19'-6\"",
+          proposedHeight: "20'-0\"",
+          midSpanProposed: "18'-0\"" // Proposed height available
+        },
+        // REF connection with only existing height
+        {
+          description: "AT&T Com Drop",
+          existingHeight: "14'-2\"",
+          proposedHeight: "",
+          midSpanProposed: "(11'-10\")" // Existing in parentheses
+        }
+      ]
+    });
+    
+    return pole;
+  }
+  
+  /**
+   * Validate that all required data for columns L-O is properly populated
+   * This is a utility method to verify that attachment data is complete
+   */
+  validateAttachmentData(): { valid: boolean, issues: string[] } {
+    const issues: string[] = [];
+    let valid = true;
+    
+    if (this.processedPoles.length === 0) {
+      return { 
+        valid: false, 
+        issues: ["No processed poles data to validate"] 
+      };
+    }
+    
+    console.log("Validating attachment data for all processed poles...");
+    
+    // Check all poles and their spans
+    for (const pole of this.processedPoles) {
+      if (pole.spans.length === 0) {
+        issues.push(`Pole ${pole.poleNumber} has no spans defined`);
+        valid = false;
+        continue;
+      }
+      
+      // Check each span
+      for (const span of pole.spans) {
+        // Verify span header
+        if (!span.spanHeader) {
+          issues.push(`Pole ${pole.poleNumber} has a span with no header`);
+          valid = false;
+        }
+        
+        // Check for at least one attachment per span
+        if (span.attachments.length === 0) {
+          issues.push(`Pole ${pole.poleNumber}, span "${span.spanHeader}" has no attachments`);
+          valid = false;
+          continue;
+        }
+        
+        // Check each attachment
+        for (const attachment of span.attachments) {
+          // Verify Attacher Description (Column L)
+          if (!attachment.description) {
+            issues.push(`Pole ${pole.poleNumber}, span "${span.spanHeader}" has an attachment with no description`);
+            valid = false;
+          }
+          
+          // Verify existing height has a value (Column M)
+          if (!attachment.existingHeight || attachment.existingHeight === "N/A") {
+            // This is an info message rather than error, since this could be valid in some cases
+            console.log(`Note: Pole ${pole.poleNumber}, span "${span.spanHeader}", attachment "${attachment.description}" has no existing height`);
+          }
+          
+          // Verify mid-span proposed formatting follows rules (Column O)
+          if (attachment.midSpanProposed && 
+              attachment.midSpanProposed.startsWith("(") && 
+              !attachment.midSpanProposed.endsWith(")")) {
+            issues.push(`Pole ${pole.poleNumber}, span "${span.spanHeader}", attachment "${attachment.description}" has invalid parenthesis formatting in mid-span proposed height`);
+            valid = false;
+          }
+        }
+      }
+    }
+    
+    // Report results
+    if (valid) {
+      console.log("Attachment data validation passed successfully.");
+    } else {
+      console.warn(`Attachment data validation failed with ${issues.length} issues.`);
+      for (const issue of issues) {
+        console.warn(`- ${issue}`);
+      }
+    }
+    
+    return { valid, issues };
   }
 
   /**
@@ -623,6 +888,111 @@ export class PoleDataProcessor {
   }
 
   /**
+   * PRIVATE: Check if any attachment on the pole has changes between measured and recommended designs
+   * Used to determine if Column O should be populated
+   */
+  private _hasPoleAttachmentChanges(poleLocationData: any): boolean {
+    try {
+      // Find design indices
+      const designIndices = this._findDesignIndices(poleLocationData);
+      if (!designIndices) {
+        return false;
+      }
+      
+      const measuredDesign = poleLocationData?.designs?.[designIndices.measured]?.structure;
+      const recommendedDesign = poleLocationData?.designs?.[designIndices.recommended]?.structure;
+      
+      if (!measuredDesign || !recommendedDesign) {
+        return false;
+      }
+      
+      console.log(`DEBUG: Checking for pole attachment changes`);
+      
+      // Compare wires between designs
+      if (measuredDesign.wires && recommendedDesign.wires) {
+        // Create maps for easier comparison
+        const measuredWireMap = new Map();
+        const recommendedWireMap = new Map();
+        
+        // Map measured wires
+        for (const wire of measuredDesign.wires) {
+          const wireKey = `${wire.owner?.id || 'unknown'}-${wire.clientItem?.description || wire.clientItem?.type || 'unknown'}-${wire.attachmentHeight?.value || 0}`;
+          measuredWireMap.set(wireKey, wire);
+        }
+        
+        // Check each recommended wire against measured
+        for (const wire of recommendedDesign.wires) {
+          const wireKey = `${wire.owner?.id || 'unknown'}-${wire.clientItem?.description || wire.clientItem?.type || 'unknown'}-${wire.attachmentHeight?.value || 0}`;
+          
+          // If wire exists in measured but with different height, it's changed
+          const measuredWire = measuredWireMap.get(wireKey);
+          if (!measuredWire) {
+            console.log(`DEBUG: Found new or moved wire in recommended design: ${wireKey}`);
+            return true;
+          }
+        }
+        
+        // Check if any measured wires are missing in recommended (removed)
+        for (const [wireKey, _] of measuredWireMap.entries()) {
+          const wireExists = recommendedDesign.wires.some(w => {
+            const recWireKey = `${w.owner?.id || 'unknown'}-${w.clientItem?.description || w.clientItem?.type || 'unknown'}-${w.attachmentHeight?.value || 0}`;
+            return recWireKey === wireKey;
+          });
+          
+          if (!wireExists) {
+            console.log(`DEBUG: Found removed wire from measured design: ${wireKey}`);
+            return true;
+          }
+        }
+      }
+      
+      // Compare equipment between designs
+      if (measuredDesign.equipments && recommendedDesign.equipments) {
+        // Create maps for easier comparison
+        const measuredEquipMap = new Map();
+        const recommendedEquipMap = new Map();
+        
+        // Map measured equipment
+        for (const equip of measuredDesign.equipments) {
+          const equipKey = `${equip.owner?.id || 'unknown'}-${equip.clientItem?.type || 'unknown'}-${equip.attachmentHeight?.value || 0}`;
+          measuredEquipMap.set(equipKey, equip);
+        }
+        
+        // Check each recommended equipment against measured
+        for (const equip of recommendedDesign.equipments) {
+          const equipKey = `${equip.owner?.id || 'unknown'}-${equip.clientItem?.type || 'unknown'}-${equip.attachmentHeight?.value || 0}`;
+          
+          // If equipment exists in measured but with different height, it's changed
+          const measuredEquip = measuredEquipMap.get(equipKey);
+          if (!measuredEquip) {
+            console.log(`DEBUG: Found new or moved equipment in recommended design: ${equipKey}`);
+            return true;
+          }
+        }
+        
+        // Check if any measured equipment is missing in recommended (removed)
+        for (const [equipKey, _] of measuredEquipMap.entries()) {
+          const equipExists = recommendedDesign.equipments.some(e => {
+            const recEquipKey = `${e.owner?.id || 'unknown'}-${e.clientItem?.type || 'unknown'}-${e.attachmentHeight?.value || 0}`;
+            return recEquipKey === equipKey;
+          });
+          
+          if (!equipExists) {
+            console.log(`DEBUG: Found removed equipment from measured design: ${equipKey}`);
+            return true;
+          }
+        }
+      }
+      
+      console.log(`DEBUG: No attachment changes found for this pole`);
+      return false;
+    } catch (error) {
+      console.error("Error checking for pole attachment changes:", error);
+      return false;
+    }
+  }
+  
+  /**
    * PRIVATE: Extract data for a single pole
    */
   private _extractPoleData(poleLocationData: any, katapultPoleData: any): PoleData | null {
@@ -664,11 +1034,16 @@ export class PoleDataProcessor {
       const constructionGrade = this._extractConstructionGrade(poleLocationData);
       console.log(`DEBUG: Extracted construction grade: ${constructionGrade}`);
       
+      // Check if pole has any attachment changes between measured and recommended designs
+      // This determines whether Column O (Mid-Span Proposed) is displayed
+      const poleHasAttachmentChanges = this._hasPoleAttachmentChanges(poleLocationData);
+      console.log(`DEBUG: Pole ${canonicalPoleId} has attachment changes: ${poleHasAttachmentChanges}`);
+      
       // Extract midspan height data
       const midspanHeights = this._extractExistingMidspanData(poleLocationData, katapultPoleData);
       
       // Extract span data with attachments
-      const spans = this._extractSpanData(poleLocationData, designIndices);
+      const spans = this._extractSpanData(poleLocationData, designIndices, poleHasAttachmentChanges);
       
       // Extract from/to pole information
       const fromToPoles = this._extractFromToPoles(poleLocationData, katapultPoleData);
@@ -717,83 +1092,91 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract pole structure information
-   * UPDATED to match README documentation
+   * UPDATED to properly access pole structure through designs
    */
   private _extractPoleStructure(poleLocationData: any): string {
     try {
       console.log("DEBUG: Extracting pole structure details");
-      const pole = poleLocationData?.structure?.pole;
-      if (!pole) {
-        console.log("DEBUG: No pole structure data found");
+      
+      // Find the measured design first
+      const designIndices = this._findDesignIndices(poleLocationData);
+      if (!designIndices) {
+        console.log("DEBUG: No designs found for pole structure extraction");
         return "Unknown";
       }
+      
+      // Get the pole from the measured design
+      const measuredDesign = poleLocationData?.designs?.[designIndices.measured]?.structure;
+      if (!measuredDesign || !measuredDesign.pole) {
+        console.log("DEBUG: No pole structure data found in measured design");
+        return "Unknown";
+      }
+      
+      const pole = measuredDesign.pole;
       
       // Log available data for debugging
       if (pole.clientItem) {
         console.log("DEBUG: Available clientItem keys:", Object.keys(pole.clientItem));
       }
       
-      // Get height and convert from meters to feet
-      let height = "";
-      if (pole.clientItem?.height?.value) {
-        const meters = pole.clientItem.height.value;
-        const feet = this._metersToFeet(meters);
-        height = `${Math.round(feet)}'`;
-        console.log(`DEBUG: Extracted height: ${meters}m converted to ${height}`);
-      } else {
-        console.log("DEBUG: No height value found in pole.clientItem.height.value");
-      }
-      
-      // Get class
-      let poleClass = "";
-      if (pole.clientItem?.classOfPole) {
-        poleClass = pole.clientItem.classOfPole;
-        console.log(`DEBUG: Extracted pole class: ${poleClass}`);
-      } else {
-        console.log("DEBUG: No classOfPole found in pole.clientItem");
-      }
+      // Get clientItemAlias (e.g., "40-4")
+      let clientItemAlias = pole.clientItemAlias || "";
       
       // Get species
       let species = "";
       if (pole.clientItem?.species) {
         species = pole.clientItem.species;
         console.log(`DEBUG: Extracted pole species: ${species}`);
-      } else {
-        console.log("DEBUG: No species found in pole.clientItem");
-      }
-      
-      // Alternative paths if primary paths fail
-      if (!height && pole.clientItemAlias) {
-        // Try to extract height from clientItemAlias (e.g., "40-4")
-        const parts = pole.clientItemAlias.split('-');
-        if (parts.length >= 1 && !isNaN(parseInt(parts[0]))) {
-          height = `${parts[0]}'`;
-          console.log(`DEBUG: Extracted height from clientItemAlias: ${height}`);
+      } else if (this.spidaData?.clientData?.poles && pole.clientItem?.id) {
+        // Try to find species in clientData using the clientItem id
+        const clientItemId = pole.clientItem.id;
+        for (const clientPole of this.spidaData.clientData.poles) {
+          if (clientPole.aliases && Array.isArray(clientPole.aliases)) {
+            for (const alias of clientPole.aliases) {
+              if (alias.id === clientItemId) {
+                species = clientPole.species || "";
+                console.log(`DEBUG: Found pole species in clientData: ${species}`);
+                break;
+              }
+            }
+            if (species) break;
+          }
         }
       }
       
-      if (!poleClass && pole.clientItemAlias) {
-        // Try to extract class from clientItemAlias (e.g., "40-4")
-        const parts = pole.clientItemAlias.split('-');
-        if (parts.length >= 2 && !isNaN(parseInt(parts[1]))) {
-          poleClass = parts[1];
-          console.log(`DEBUG: Extracted class from clientItemAlias: ${poleClass}`);
+      // If we still don't have species, try class of pole
+      let classOfPole = "";
+      if (pole.clientItem?.classOfPole) {
+        classOfPole = pole.clientItem.classOfPole;
+      } else if (this.spidaData?.clientData?.poles && pole.clientItem?.id) {
+        // Try to find class in clientData
+        const clientItemId = pole.clientItem.id;
+        for (const clientPole of this.spidaData.clientData.poles) {
+          if (clientPole.aliases && Array.isArray(clientPole.aliases)) {
+            for (const alias of clientPole.aliases) {
+              if (alias.id === clientItemId) {
+                classOfPole = clientPole.classOfPole || "";
+                console.log(`DEBUG: Found pole class in clientData: ${classOfPole}`);
+                break;
+              }
+            }
+            if (classOfPole) break;
+          }
         }
       }
       
-      // Format according to README: "40-4 Southern Pine"
+      // Combine class and species for full structure info
       let structureStr = "";
-      
-      if (height && poleClass) {
-        structureStr = `${height}-Class ${poleClass}`;
-      } else if (height) {
-        structureStr = height;
-      } else if (poleClass) {
-        structureStr = `Class ${poleClass}`;
-      }
-      
-      if (species) {
-        structureStr = structureStr ? `${structureStr} ${species}` : species;
+      if (clientItemAlias && species) {
+        structureStr = `${clientItemAlias} ${species}`;
+      } else if (classOfPole && species) {
+        structureStr = `${classOfPole} ${species}`;
+      } else if (clientItemAlias) {
+        structureStr = clientItemAlias;
+      } else if (species) {
+        structureStr = species;
+      } else if (classOfPole) {
+        structureStr = classOfPole;
       }
       
       console.log(`DEBUG: Final pole structure string: "${structureStr}"`);
@@ -898,14 +1281,34 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract PLA value
-   * UPDATED to match README documentation and fix missing PLA issue
+   * UPDATED to correctly find Pole stress analysis results
    */
   private _extractPLA(poleLocationData: any): { pla: string, actual: number } {
     try {
-      // Find the target analysis case (assuming "Light - Grade C" or similar)
-      const analysisObjects = poleLocationData?.analysis;
+      // Check if we have designs and find the recommended design
+      const designIndices = this._findDesignIndices(poleLocationData);
+      if (!designIndices) {
+        console.log("DEBUG: No designs found for PLA extraction");
+        return { pla: "N/A", actual: 0 };
+      }
+      
+      // Look for analysis in the recommended design first (leads[0].locations[0].designs[1].analysis)
+      const recommendedDesign = poleLocationData?.designs?.[designIndices.recommended];
+      if (!recommendedDesign) {
+        console.log("DEBUG: No recommended design found");
+        return { pla: "N/A", actual: 0 };
+      }
+      
+      let analysisObjects = recommendedDesign.analysis;
+      
+      // If no analysis at design level, check location level
+      if (!analysisObjects || !Array.isArray(analysisObjects) || analysisObjects.length === 0) {
+        console.log("DEBUG: No analysis at design level, checking location level");
+        analysisObjects = poleLocationData?.analysis;
+      }
+      
       if (!analysisObjects || !Array.isArray(analysisObjects)) {
-        console.log("DEBUG: No analysis objects found in pole location data");
+        console.log("DEBUG: No analysis objects found at any level");
         return { pla: "N/A", actual: 0 };
       }
       
@@ -916,99 +1319,50 @@ export class PoleDataProcessor {
         `[${i}]: ${a?.analysisCaseDetails?.name || 'Unnamed'}`).join(', ');
       console.log(`DEBUG: Available analysis cases: ${caseNames}`);
       
-      // Look for the recommended design analysis case - trying multiple match patterns
-      let targetAnalysis = null;
-      
-      // First, try exact matches for known patterns
-      const knownPatterns = [
-        "Recommended Design",
-        "Light - Grade C",
-        "Grade C",
-        "NESC Light Loading Grade C"
-      ];
-      
-      for (const pattern of knownPatterns) {
-        for (const analysis of analysisObjects) {
-          const caseName = analysis?.analysisCaseDetails?.name || "";
-          if (caseName.includes(pattern)) {
-            targetAnalysis = analysis;
-            console.log(`DEBUG: Found analysis case matching "${pattern}": ${caseName}`);
-            break;
-          }
-        }
-        if (targetAnalysis) break;
-      }
-      
-      // If no exact matches, look for any case with "Recommended" or "Grade"
-      if (!targetAnalysis) {
-        for (const analysis of analysisObjects) {
-          const caseName = analysis?.analysisCaseDetails?.name || "";
-          if (
-            caseName.includes("Recommended") || 
-            caseName.includes("Grade") ||
-            caseName.includes("NESC")
-          ) {
-            targetAnalysis = analysis;
-            console.log(`DEBUG: Found alternative analysis case: ${caseName}`);
-            break;
+      // First try to find "Light - Grade C" analysis
+      for (const analysis of analysisObjects) {
+        const caseName = analysis?.analysisCaseDetails?.name || "";
+        if (caseName.includes("Light - Grade C")) {
+          // Found the target analysis case
+          console.log(`DEBUG: Found "Light - Grade C" analysis case`);
+          
+          // Check for results
+          const results = analysis.results || [];
+          
+          // Find the pole stress result specifically
+          for (const result of results) {
+            if (result.component === "Pole" && result.analysisType === "STRESS") {
+              const plaValue = result.actual;
+              if (typeof plaValue === "number") {
+                console.log(`DEBUG: Found pole stress value: ${plaValue}`);
+                return { 
+                  pla: `${plaValue.toFixed(2)}%`, 
+                  actual: plaValue 
+                };
+              }
+            }
           }
         }
       }
       
-      // Use the first analysis if specific case not found
-      if (!targetAnalysis && analysisObjects.length > 0) {
-        targetAnalysis = analysisObjects[0];
-        console.log(`DEBUG: Using first available analysis case as fallback: ${targetAnalysis?.analysisCaseDetails?.name || 'Unnamed'}`);
-      }
-      
-      // If still no analysis found
-      if (!targetAnalysis) {
-        console.log("DEBUG: No suitable analysis case found");
-        return { pla: "N/A", actual: 0 };
-      }
-      
-      // Find the pole stress result
-      const results = targetAnalysis.results || [];
-      if (results.length === 0) {
-        console.log("DEBUG: No results found in the target analysis case");
-      } else {
-        console.log(`DEBUG: Found ${results.length} results in the analysis case`);
-        
-        // Log all result types for debugging
-        const resultTypes = results.map((r: any, i: number) => 
-          `[${i}]: component=${r.component}, type=${r.analysisType}, actual=${r.actual}`).join('; ');
-        console.log(`DEBUG: Available results: ${resultTypes}`);
-      }
-      
-      for (const result of results) {
-        if (
-          result.component === "Pole" && 
-          result.analysisType === "STRESS"
-        ) {
-          const plaValue = result.actual;
-          if (typeof plaValue === "number") {
-            // Format as percentage with 2 decimal places
-            console.log(`DEBUG: Found PLA value: ${plaValue}`);
-            return { 
-              pla: `${plaValue.toFixed(2)}%`, 
-              actual: plaValue 
-            };
+      // If specific analysis not found, try any analysis case with stress results
+      for (const analysis of analysisObjects) {
+        const results = analysis.results || [];
+        for (const result of results) {
+          if (result.component === "Pole" && result.analysisType === "STRESS") {
+            const plaValue = result.actual;
+            if (typeof plaValue === "number") {
+              console.log(`DEBUG: Found pole stress in alternative analysis: ${plaValue}`);
+              return { 
+                pla: `${plaValue.toFixed(2)}%`, 
+                actual: plaValue 
+              };
+            }
           }
         }
       }
       
-      // If we get here, try broader search for any stress result
-      for (const result of results) {
-        if (result.analysisType === "STRESS" && typeof result.actual === "number") {
-          console.log(`DEBUG: Found alternative stress result for ${result.component}: ${result.actual}`);
-          return {
-            pla: `${result.actual.toFixed(2)}%`,
-            actual: result.actual
-          };
-        }
-      }
-      
-      console.log("DEBUG: No suitable PLA result found");
+      console.log("DEBUG: No pole stress result found in any analysis");
       return { pla: "N/A", actual: 0 };
     } catch (error) {
       console.error("Error extracting PLA:", error);
@@ -1018,141 +1372,100 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract construction grade
-   * UPDATED to match README documentation and fix extraction
+   * UPDATED to always return "Grade C" as specified
    */
   private _extractConstructionGrade(poleLocationData: any): string {
-    try {
-      // Find the target analysis case
-      const analysisObjects = poleLocationData?.analysis;
-      if (!analysisObjects || !Array.isArray(analysisObjects)) {
-        console.log("DEBUG: No analysis objects found for construction grade extraction");
-        return "N/A";
-      }
-      
-      console.log(`DEBUG: Extracting construction grade from ${analysisObjects.length} analysis objects`);
-      
-      // First try to find a recommended design analysis
-      for (const analysis of analysisObjects) {
-        const caseName = analysis?.analysisCaseDetails?.name || "";
-        const constructionGrade = analysis?.analysisCaseDetails?.constructionGrade;
-        
-        console.log(`DEBUG: Checking analysis case "${caseName}" for construction grade: ${constructionGrade}`);
-        
-        if (caseName.includes("Recommended") && constructionGrade) {
-          console.log(`DEBUG: Found construction grade ${constructionGrade} in recommended analysis`);
-          return `Grade ${constructionGrade}`;
-        }
-      }
-      
-      // If not found in recommended analysis, check any analysis case with a grade
-      for (const analysis of analysisObjects) {
-        const constructionGrade = analysis?.analysisCaseDetails?.constructionGrade;
-        if (constructionGrade) {
-          console.log(`DEBUG: Found construction grade ${constructionGrade} in general analysis`);
-          return `Grade ${constructionGrade}`;
-        }
-      }
-      
-      // Also check the analysis name for grade information
-      for (const analysis of analysisObjects) {
-        const caseName = analysis?.analysisCaseDetails?.name || "";
-        if (caseName.includes("Grade")) {
-          // Try to extract grade from the name (e.g., "Light - Grade C")
-          const match = caseName.match(/Grade\s+([A-C])/i);
-          if (match && match[1]) {
-            console.log(`DEBUG: Extracted grade ${match[1]} from analysis name "${caseName}"`);
-            return `Grade ${match[1]}`;
-          }
-        }
-      }
-      
-      console.log("DEBUG: No construction grade found");
-      return "N/A";
-    } catch (error) {
-      console.error("Error extracting construction grade:", error);
-      return "N/A";
-    }
+    // Always return "Grade C" as specified
+    return "Grade C";
   }
 
   /**
-   * PRIVATE: Extract existing midspan height data
+   * PRIVATE: Extract existing midspan height data from Katapult data
+   * UPDATED to find the absolute lowest midspan height across ALL spans connected to a pole
+   * This data is used for Columns J & K (Height Lowest Com & Height Lowest CPS Electrical)
    */
   private _extractExistingMidspanData(poleLocationData: any, katapultPoleData: any): { com: string, electrical: string } {
-    // This would involve analyzing attachments and their midspan sags
-    // For this implementation, we'll extract the lowest COM and electrical attachments
     try {
-      let lowestComHeight = Number.MAX_VALUE;
-      let lowestElectricalHeight = Number.MAX_VALUE;
+      // Only use Katapult data as requested - no fallback to SPIDAcalc
+      if (!this.katapultData || !katapultPoleData) {
+        console.log("DEBUG: No Katapult data available for midspan heights");
+        return { com: "N/A", electrical: "N/A" };
+      }
+      
+      console.log("DEBUG: Extracting midspan heights from Katapult data");
+      
+      // Extract the pole number/ID (needed for logging)
+      const poleNumber = this._canonicalizePoleID(poleLocationData.label);
+      console.log(`DEBUG: Looking for midspan data for pole ${poleNumber}`);
+      
+      // Process Katapult data to get connection and wire information
+      const processedKatapultData = processKatapultData(this.katapultData);
+      
+      // Variables to track lowest heights
+      let lowestComHeightInches = Number.MAX_VALUE;
+      let lowestElectricalHeightInches = Number.MAX_VALUE;
       let foundCom = false;
       let foundElectrical = false;
       
-      // Find design indices
-      const designIndices = this._findDesignIndices(poleLocationData);
-      if (!designIndices) {
-        return { com: "N/A", electrical: "N/A" };
-      }
+      // Extract the Katapult internal node ID for this pole
+      const katapultNodeId = katapultPoleData.id || '';
       
-      // Get attachments from Measured Design
-      const measuredDesign = poleLocationData?.designs?.[designIndices.measured]?.structure;
-      if (!measuredDesign) {
-        return { com: "N/A", electrical: "N/A" };
-      }
+      // Log the Katapult node ID for debugging
+      console.log(`DEBUG: Found Katapult node ID: ${katapultNodeId}`);
       
-      // Process wires
-      if (measuredDesign.wires && Array.isArray(measuredDesign.wires)) {
-        for (const wire of measuredDesign.wires) {
-          const usageGroup = wire?.usageGroup || "";
-          const attachmentHeight = wire?.attachmentHeight?.value;
+      // Find all connections involving this pole
+      const poleConnections = processedKatapultData.connections.filter(connection => 
+        connection.fromPoleId === katapultNodeId || 
+        connection.toPoleId === katapultNodeId
+      );
+      
+      console.log(`DEBUG: Found ${poleConnections.length} connections for pole ${poleNumber}`);
+      
+      // Iterate through each connection
+      for (const connection of poleConnections) {
+        // Focus on aerial connections (most relevant for midspan)
+        if (connection.buttonType !== 'aerial_path' && !connection.buttonType.includes('aerial')) {
+          console.log(`DEBUG: Skipping non-aerial connection: ${connection.buttonType}`);
+          continue;
+        }
+        
+        console.log(`DEBUG: Processing aerial connection ${connection.connectionId}`);
+        
+        // Process each wire in the connection
+        for (const wireId in connection.wires) {
+          const wire = connection.wires[wireId];
           
-          if (!attachmentHeight) continue;
+          // Skip wires with no midspan height
+          if (wire.lowestExistingMidspanHeight === null) {
+            continue;
+          }
           
-          // Check usage group to determine if it's a com or electrical attachment
-          if (usageGroup.includes("COMMUNICATION")) {
+          // Process based on wire category
+          if (wire.category === WireCategory.COMMUNICATION) {
+            console.log(`DEBUG: Found COM wire (${wire.company} - ${wire.cableType}) with height ${wire.lowestExistingMidspanHeight}`);
             foundCom = true;
-            lowestComHeight = Math.min(lowestComHeight, attachmentHeight);
-          } else if (
-            usageGroup.includes("PRIMARY") ||
-            usageGroup.includes("NEUTRAL") ||
-            usageGroup.includes("SECONDARY")
-          ) {
+            lowestComHeightInches = Math.min(lowestComHeightInches, wire.lowestExistingMidspanHeight);
+          } else if (wire.category === WireCategory.CPS_ELECTRICAL) {
+            console.log(`DEBUG: Found CPS ELECTRICAL wire (${wire.company} - ${wire.cableType}) with height ${wire.lowestExistingMidspanHeight}`);
             foundElectrical = true;
-            lowestElectricalHeight = Math.min(lowestElectricalHeight, attachmentHeight);
+            lowestElectricalHeightInches = Math.min(lowestElectricalHeightInches, wire.lowestExistingMidspanHeight);
           }
         }
       }
       
-      // Process equipment
-      if (measuredDesign.equipments && Array.isArray(measuredDesign.equipments)) {
-        for (const equipment of measuredDesign.equipments) {
-          const usageGroup = equipment?.usageGroup || "";
-          const attachmentHeight = equipment?.attachmentHeight?.value;
-          
-          if (!attachmentHeight) continue;
-          
-          // Check usage group
-          if (usageGroup.includes("COMMUNICATION")) {
-            foundCom = true;
-            lowestComHeight = Math.min(lowestComHeight, attachmentHeight);
-          } else if (
-            usageGroup.includes("PRIMARY") ||
-            usageGroup.includes("NEUTRAL") ||
-            usageGroup.includes("SECONDARY")
-          ) {
-            foundElectrical = true;
-            lowestElectricalHeight = Math.min(lowestElectricalHeight, attachmentHeight);
-          }
-        }
-      }
-      
-      // Convert heights to feet-inches format
+      // Format heights
       const comHeight = foundCom ? 
-        this._metersToFeetInches(lowestComHeight) : 
+        formatHeightToString(lowestComHeightInches) : 
         "N/A";
       
       const electricalHeight = foundElectrical ? 
-        this._metersToFeetInches(lowestElectricalHeight) : 
+        formatHeightToString(lowestElectricalHeightInches) : 
         "N/A";
       
+      // Log results
+      console.log(`DEBUG: Extracted lowest midspan heights from Katapult - COM: ${comHeight}, CPS Electrical: ${electricalHeight}`);
+      
+      // Return results from Katapult data only
       return {
         com: comHeight,
         electrical: electricalHeight
@@ -1163,77 +1476,372 @@ export class PoleDataProcessor {
     }
   }
 
-  /**
-   * PRIVATE: Extract span data with attachments
-   */
-  private _extractSpanData(poleLocationData: any, designIndices: { measured: number, recommended: number }): SpanData[] {
-    try {
-      const spans: SpanData[] = [];
-      const recommendedDesign = poleLocationData?.designs?.[designIndices.recommended]?.structure;
-      const measuredDesign = poleLocationData?.designs?.[designIndices.measured]?.structure;
-      
-      if (!recommendedDesign || !recommendedDesign.wireEndPoints) {
-        return spans;
-      }
-      
-      // Create a map of wire IDs to actual wire objects for both designs
-      const recommendedWireMap = this._createWireMap(recommendedDesign);
-      const measuredWireMap = this._createWireMap(measuredDesign);
-      
-      // Process each wire end point (span)
-      for (const wireEndPoint of recommendedDesign.wireEndPoints) {
-        try {
-          // Skip if no wires in this span
-          if (!wireEndPoint.wires || wireEndPoint.wires.length === 0) {
-            continue;
-          }
+/**
+ * PRIVATE: Extract span data with attachments
+ * UPDATED to integrate Katapult mid-span height data and handle REF connections
+ * Also considers whether pole has attachment changes for Column O display
+ */
+private _extractSpanData(poleLocationData: any, designIndices: { measured: number, recommended: number }, poleHasAttachmentChanges: boolean): SpanData[] {
+  try {
+    const spans: SpanData[] = [];
+    const recommendedDesign = poleLocationData?.designs?.[designIndices.recommended]?.structure;
+    const measuredDesign = poleLocationData?.designs?.[designIndices.measured]?.structure;
+    
+    if (!recommendedDesign || !recommendedDesign.wireEndPoints) {
+      return spans;
+    }
+    
+    // Get pole ID for finding Katapult data
+    const poleId = this._canonicalizePoleID(poleLocationData.label);
+    console.log(`DEBUG: Extracting span data for pole ${poleId}`);
+    
+    // Create a map of wire IDs to actual wire objects for both designs
+    const recommendedWireMap = this._createWireMap(recommendedDesign);
+    const measuredWireMap = this._createWireMap(measuredDesign);
+    
+    // Process each wire end point (span)
+    for (const wireEndPoint of recommendedDesign.wireEndPoints) {
+      try {
+        // Skip if no wires in this span
+        if (!wireEndPoint.wires || wireEndPoint.wires.length === 0) {
+          continue;
+        }
+        
+        // Generate span header
+        const spanHeader = this._generateSpanHeader(wireEndPoint);
+        const isRefConnection = this._isRefConnection(wireEndPoint);
+        
+        // Get destination pole ID for finding Katapult connections
+        const toPoleId = wireEndPoint.structureLabel || '';
+        console.log(`DEBUG: Processing span from ${poleId} to ${toPoleId}, isRef: ${isRefConnection}`);
+        
+        // Create new span data object
+        const spanData: SpanData = {
+          spanHeader: spanHeader,
+          attachments: []
+        };
+        
+        // Process each wire in this span
+        for (const wireId of wireEndPoint.wires) {
+          // Get wire from recommended design
+          const recommendedWire = recommendedWireMap.get(wireId);
+          if (!recommendedWire) continue;
           
-          // Generate span header
-          const spanHeader = this._generateSpanHeader(wireEndPoint);
+          // Try to find matching wire in measured design
+          const measuredWire = this._findMatchingWire(recommendedWire, measuredWireMap);
           
-          // Create new span data object
-          const spanData: SpanData = {
-            spanHeader: spanHeader,
-            attachments: []
+          // Get attacher description
+          const description = this._getAttachmentDescription(recommendedWire);
+          
+          // Get existing height
+          const existingHeight = measuredWire ? 
+            this._metersToFeetInches(measuredWire.attachmentHeight?.value) : 
+            "N/A";
+          
+          // Get proposed height
+          const proposedHeight = recommendedWire.attachmentHeight?.value ? 
+            this._metersToFeetInches(recommendedWire.attachmentHeight.value) : 
+            ""; // Leave blank if same as existing
+            
+          // Get midspan height from Katapult (pass poleHasAttachmentChanges flag)
+          const midSpanProposed = this._getMidSpanProposedHeight(
+            poleId,
+            toPoleId,
+            description,
+            recommendedWire,
+            isRefConnection,
+            poleHasAttachmentChanges
+          );
+          
+          // Create attachment data
+          const attachmentData: AttachmentData = {
+            description,
+            existingHeight,
+            proposedHeight,
+            midSpanProposed
           };
           
-          // Process each wire in this span
-          for (const wireId of wireEndPoint.wires) {
-            // Get wire from recommended design
-            const recommendedWire = recommendedWireMap.get(wireId);
-            if (!recommendedWire) continue;
-            
-            // Try to find matching wire in measured design
-            const measuredWire = this._findMatchingWire(recommendedWire, measuredWireMap);
-            
-            // Create attachment data
-            const attachmentData: AttachmentData = {
-              description: this._getAttachmentDescription(recommendedWire),
-              existingHeight: measuredWire ? 
-                this._metersToFeetInches(measuredWire.attachmentHeight?.value) : 
-                "N/A",
-              proposedHeight: this._metersToFeetInches(recommendedWire.attachmentHeight?.value),
-              midSpanProposed: this._calculateMidSpanHeight(recommendedWire) || "N/A"
-            };
-            
-            spanData.attachments.push(attachmentData);
-          }
-          
-          // Add span data to spans array
-          if (spanData.attachments.length > 0) {
-            spans.push(spanData);
-          }
-        } catch (error) {
-          console.warn("Error processing span:", error);
+          spanData.attachments.push(attachmentData);
+        }
+        
+        // Add span data to spans array
+        if (spanData.attachments.length > 0) {
+          spans.push(spanData);
+        }
+      } catch (error) {
+        console.warn("Error processing span:", error);
+      }
+    }
+    
+    return spans;
+  } catch (error) {
+    console.error("Error extracting span data:", error);
+    return [];
+  }
+}
+
+/**
+ * PRIVATE: Check if a wireEndPoint represents a REF connection
+ */
+private _isRefConnection(wireEndPoint: any): boolean {
+  const type = wireEndPoint.type || "";
+  return type !== "NEXT_POLE" && type !== "PREVIOUS_POLE";
+}
+
+/**
+ * PRIVATE: Get the proposed mid-span height from Katapult data
+ * Handles both regular spans and REF connections with enhanced logic for column O
+ * Updated to strictly use Katapult midspan data and prioritize owner/type matching for main spans
+ */
+private _getMidSpanProposedHeight(
+  fromPoleId: string,
+  toPoleId: string,
+  attacherDescription: string,
+  spidaWire: any,
+  isRefConnection: boolean,
+  poleHasAttachmentChanges: boolean = false
+): string {
+  try {
+    // REMOVED: The condition that was forcing "N/A" for all wires if pole has no attachment changes
+    // This change allows mid-span data to be displayed even if the pole attachments themselves haven't changed
+    
+    // Skip if no Katapult data available
+    if (!this.katapultData) {
+      console.log(`DEBUG: No Katapult data available for mid-span heights`);
+      return "N/A";
+    }
+    
+    // Get processed Katapult data
+    const processedKatapultData = processKatapultData(this.katapultData);
+    
+    console.log(`DEBUG: Finding mid-span height for ${attacherDescription} from ${fromPoleId} to ${toPoleId}`);
+    
+    // First check if this is an underground connection, which should return "UG" instead of "N/A"
+    // This implements the fallback logic from excel_gener_details.txt
+    const connections = processedKatapultData.connections.filter(connection => 
+      (connection.fromPoleId.includes(fromPoleId) && connection.toPoleId.includes(toPoleId)) ||
+      (connection.fromPoleId.includes(toPoleId) && connection.toPoleId.includes(fromPoleId)) ||
+      (isRefConnection && (connection.fromPoleId.includes(fromPoleId) || connection.toPoleId.includes(fromPoleId)))
+    );
+    
+    // Check if any of these connections are underground paths
+    const hasUndergroundPath = connections.some(connection => 
+      connection.buttonType === 'underground_path' || 
+      connection.buttonType.includes('underground')
+    );
+    
+    if (hasUndergroundPath) {
+      console.log(`DEBUG: Found underground path connection, returning "UG" for mid-span proposed`);
+      return "UG";
+    }
+    
+    // Get SPIDAcalc attachment height in inches (for context, not primary matching)
+    const spidaAttachHeightMeters = spidaWire.attachmentHeight?.value || 0;
+    const spidaAttachHeightInches = this._metersToFeet(spidaAttachHeightMeters) * 12;
+    
+    // Get SPIDAcalc wire details for matching
+    const spidaOwner = spidaWire.owner?.id || "";
+    const spidaType = spidaWire.clientItem?.description || 
+                     spidaWire.clientItem?.type || 
+                     spidaWire.clientItem?.size || "";
+    
+    console.log(`DEBUG: Searching for Katapult wire matching SPIDAcalc: owner="${spidaOwner}", type="${spidaType}"`);
+    
+    // Look for matching connection in Katapult data
+    let matchingConnection;
+    
+    // For REF connections, we need special handling
+    if (isRefConnection) {
+      console.log(`DEBUG: Processing REF connection for ${fromPoleId} (${attacherDescription})`);
+      
+      // Find connections that include fromPoleId
+      let fromPoleConnections = processedKatapultData.connections.filter(connection => 
+        (connection.fromPoleId.includes(fromPoleId) || connection.toPoleId.includes(fromPoleId))
+      );
+      
+      console.log(`DEBUG: Found ${fromPoleConnections.length} connections for REF from pole ${fromPoleId}`);
+      
+      // Try to find a more specific match using the wire description
+      const descriptionLower = attacherDescription.toLowerCase();
+      
+      // If description has "service", try to find service drops first
+      const isServiceDrop = descriptionLower.includes("service") || descriptionLower.includes("drop");
+      if (isServiceDrop) {
+        console.log(`DEBUG: Looking for service/drop connections for "${attacherDescription}"`);
+        const serviceConnections = fromPoleConnections.filter(connection => 
+          connection.buttonType.includes("service") || 
+          connection.buttonType.includes("drop") ||
+          connection.buttonType === "ref"
+        );
+        
+        if (serviceConnections.length > 0) {
+          fromPoleConnections = serviceConnections;
+          console.log(`DEBUG: Narrowed down to ${serviceConnections.length} service connections`);
         }
       }
       
-      return spans;
-    } catch (error) {
-      console.error("Error extracting span data:", error);
-      return [];
+      // First try to find a REF connection (buttonType === 'ref')
+      matchingConnection = fromPoleConnections.find(connection => 
+        connection.isRefConnection
+      );
+      
+      // If no REF connection found, try service drops or taps
+      if (!matchingConnection) {
+        matchingConnection = fromPoleConnections.find(connection => 
+          connection.buttonType.includes('service') || 
+          connection.buttonType.includes('drop')
+        );
+      }
+      
+      // If still no match, try any non-aerial connection
+      if (!matchingConnection) {
+        matchingConnection = fromPoleConnections.find(connection => 
+          !connection.buttonType.includes('aerial')
+        );
+      }
+      
+      // If still nothing, just take the first connection as a last resort
+      if (!matchingConnection && fromPoleConnections.length > 0) {
+        matchingConnection = fromPoleConnections[0];
+        console.log(`DEBUG: Using first available connection as fallback for REF`);
+      }
+    } else {
+      // For regular spans, look for a direct connection between fromPoleId and toPoleId
+      console.log(`DEBUG: Looking for aerial span from ${fromPoleId} to ${toPoleId}`);
+      matchingConnection = processedKatapultData.connections.find(connection => 
+        (connection.fromPoleId.includes(fromPoleId) && connection.toPoleId.includes(toPoleId)) ||
+        (connection.fromPoleId.includes(toPoleId) && connection.toPoleId.includes(fromPoleId))
+      );
     }
+    
+    if (matchingConnection) {
+      console.log(`DEBUG: Found matching connection: ${matchingConnection.connectionId} (${matchingConnection.buttonType})`);
+      
+      // Now find the matching wire in this connection
+      const wireMatches = [];
+      
+      for (const wireId in matchingConnection.wires) {
+        const wire = matchingConnection.wires[wireId];
+        
+        // Get wire details for matching
+        const wireOwner = wire.company || "";
+        const wireType = wire.cableType || "";
+        
+        // Calculate a match score
+        let matchScore = 0;
+        
+        // OWNER MATCHING - primary criteria
+        // Owner exact match
+        if (wireOwner.toLowerCase() === spidaOwner.toLowerCase()) {
+          matchScore += 25; // Exact match on owner
+        } 
+        // Owner partial match
+        else if (wireOwner.toLowerCase().includes(spidaOwner.toLowerCase()) || 
+                 spidaOwner.toLowerCase().includes(wireOwner.toLowerCase())) {
+          matchScore += 15; // Partial match on owner
+        }
+        
+        // TYPE MATCHING - secondary criteria
+        // Type exact match
+        if (wireType.toLowerCase() === spidaType.toLowerCase()) {
+          matchScore += 20; // Exact match on type
+        }
+        // Type partial match
+        else if (wireType.toLowerCase().includes(spidaType.toLowerCase()) || 
+                 spidaType.toLowerCase().includes(wireType.toLowerCase())) {
+          matchScore += 10; // Partial match on type
+        }
+        
+        // Special handling for common owner/type name variations
+        const spidaDescLower = attacherDescription.toLowerCase();
+        const wireTypeLower = wireType.toLowerCase();
+        
+        // Check for specific company matches (AT&T, Charter, etc.)
+        if ((spidaDescLower.includes("at&t") && wireOwner.toLowerCase().includes("att")) ||
+            (spidaDescLower.includes("att") && wireOwner.toLowerCase().includes("at&t")) ||
+            (spidaDescLower.includes("charter") && wireOwner.toLowerCase().includes("spectrum")) ||
+            (spidaDescLower.includes("spectrum") && wireOwner.toLowerCase().includes("charter")) ||
+            (spidaDescLower.includes("cps") && wireOwner.toLowerCase().includes("cps"))) {
+          matchScore += 10;
+        }
+        
+        // Check for fiber, service, etc. type matches
+        if ((spidaDescLower.includes("fiber") && wireTypeLower.includes("fiber")) ||
+            (spidaDescLower.includes("service") && wireTypeLower.includes("service")) ||
+            (spidaDescLower.includes("drop") && wireTypeLower.includes("drop")) ||
+            (spidaDescLower.includes("primary") && wireTypeLower.includes("primary")) ||
+            (spidaDescLower.includes("neutral") && wireTypeLower.includes("neutral"))) {
+          matchScore += 10;
+        }
+        
+        // HEIGHT MATCHING - tertiary criteria, lower weight
+        // Only use height as a secondary signal for matching if we have midspan observations
+        if (wire.midspanObservations && wire.midspanObservations.length > 0) {
+          // Find the closest height observation 
+          let bestHeightDiff = Number.MAX_VALUE;
+          
+          for (const obs of wire.midspanObservations) {
+            if (obs.originalHeightInches !== null) {
+              const heightDiff = Math.abs(obs.originalHeightInches - spidaAttachHeightInches);
+              bestHeightDiff = Math.min(bestHeightDiff, heightDiff);
+            }
+          }
+          
+          // Only add height score if reasonably close
+          if (bestHeightDiff < 60) { // Within 5 feet (60 inches)
+            // Lower weight for height matching - max 5 points
+            matchScore += Math.max(0, 5 - (bestHeightDiff / 12));
+          }
+        }
+        
+        // Add to matches array if score is above threshold
+        if (matchScore >= 10) {
+          wireMatches.push({
+            wire,
+            score: matchScore
+          });
+        }
+      }
+      
+      // Sort matches by score (highest first)
+      wireMatches.sort((a, b) => b.score - a.score);
+      
+      // Use highest scoring match if available
+      if (wireMatches.length > 0) {
+        const matchingWire = wireMatches[0].wire;
+        console.log(`DEBUG: Found matching wire: ${matchingWire.company} - ${matchingWire.cableType} (match score: ${wireMatches[0].score})`);
+        
+        // Use ONLY midspan heights from Katapult for Column O (never use poleAttachmentObservations)
+        const existingHeight = matchingWire.lowestExistingMidspanHeight;
+        const proposedHeight = matchingWire.finalProposedMidspanHeight;
+        
+        console.log(`DEBUG: Wire midspan heights - existing: ${existingHeight}, proposed: ${proposedHeight}`);
+        
+        // Check if we have valid midspan height data
+        if (existingHeight !== null || proposedHeight !== null) {
+          // If there's a proposed height, use that without parentheses
+          if (proposedHeight !== null) {
+            return formatHeightToString(proposedHeight);
+          }
+          // If there's only an existing height, show in parentheses
+          else if (existingHeight !== null) {
+            return `(${formatHeightToString(existingHeight)})`;
+          }
+        } else {
+          console.log(`DEBUG: No midspan observations for matched wire in Katapult`);
+          return "N/A"; // No midspan data available in Katapult
+        }
+      }
+    }
+    
+    // If no match found or no midspan data available
+    console.log(`DEBUG: No matching wire found or no midspan height data available in Katapult`);
+    return "N/A";
+  } catch (error) {
+    console.error("Error getting mid-span height:", error);
+    return "N/A";
   }
+}
 
   /**
    * PRIVATE: Create a map of wire IDs to wire objects
@@ -1350,12 +1958,15 @@ export class PoleDataProcessor {
   }
 
   /**
-   * PRIVATE: Calculate mid-span height
+   * PRIVATE: Calculate mid-span height - LEGACY method, now replaced by _getMidSpanProposedHeight
+   * Kept for backward compatibility
    */
   private _calculateMidSpanHeight(wire: any): string {
     try {
-      // This would involve sag calculations based on wire properties
-      // As a placeholder, calculate a simple approximation
+      // Log deprecation warning
+      console.log("DEBUG: _calculateMidSpanHeight is deprecated, use _getMidSpanProposedHeight instead");
+      
+      // Call the new method if possible, otherwise fall back to simple calculation
       if (!wire.attachmentHeight?.value) {
         return "N/A";
       }
@@ -1373,62 +1984,117 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract from/to pole information
+   * ENHANCED to provide more accurate from/to pole relationships
    */
   private _extractFromToPoles(poleLocationData: any, katapultPoleData: any): { from: string, to: string } {
-    // Try to get from Katapult first, then fall back to SPIDAcalc
     try {
-      let fromPole = "N/A";
+      // Current pole ID
+      const currentPoleId = this._canonicalizePoleID(poleLocationData.label);
+      console.log(`DEBUG: Extracting from/to information for pole ${currentPoleId}`);
+      
+      // Default to using the current pole as the 'from' pole
+      let fromPole = currentPoleId;
       let toPole = "N/A";
       
-      // Use SPIDAcalc data for from/to determination
-      const poleId = this._canonicalizePoleID(poleLocationData.label);
-      
-      // Check wire end points for potential from/to poles
+      // Find design indices
       const designIndices = this._findDesignIndices(poleLocationData);
       if (!designIndices) {
+        console.log("DEBUG: No designs found for from/to extraction");
         return { from: fromPole, to: toPole };
       }
       
       const recommendedDesign = poleLocationData?.designs?.[designIndices.recommended]?.structure;
       if (!recommendedDesign || !recommendedDesign.wireEndPoints) {
+        console.log("DEBUG: No wire end points found in recommended design");
         return { from: fromPole, to: toPole };
       }
       
-      // Look for PREVIOUS_POLE and NEXT_POLE types
-      for (const wireEndPoint of recommendedDesign.wireEndPoints) {
-        if (wireEndPoint.type === "PREVIOUS_POLE" && wireEndPoint.structureLabel) {
-          fromPole = wireEndPoint.structureLabel;
-        }
-        if (wireEndPoint.type === "NEXT_POLE" && wireEndPoint.structureLabel) {
-          toPole = wireEndPoint.structureLabel;
+      // First try to find a NEXT_POLE type for the 'to' pole
+      const nextPoleEndPoint = recommendedDesign.wireEndPoints.find(
+        wep => wep.type === "NEXT_POLE" && wep.structureLabel
+      );
+      
+      if (nextPoleEndPoint) {
+        toPole = nextPoleEndPoint.structureLabel;
+        console.log(`DEBUG: Found NEXT_POLE connection to ${toPole}`);
+        return { from: fromPole, to: toPole };
+      }
+      
+      // If no NEXT_POLE, find the first non-PREVIOUS_POLE with a structureLabel
+      const nonPrevEndPoint = recommendedDesign.wireEndPoints.find(
+        wep => wep.type !== "PREVIOUS_POLE" && wep.structureLabel
+      );
+      
+      if (nonPrevEndPoint) {
+        toPole = nonPrevEndPoint.structureLabel;
+        console.log(`DEBUG: Found non-PREVIOUS_POLE connection to ${toPole}`);
+        return { from: fromPole, to: toPole };
+      }
+      
+      // If we reach here, check Katapult data for connections
+      if (this.katapultData && katapultPoleData) {
+        console.log("DEBUG: Checking Katapult data for connections");
+        
+        // Process Katapult data
+        const processedKatapultData = processKatapultData(this.katapultData);
+        
+        // Get node ID
+        const katapultNodeId = katapultPoleData.id || '';
+        
+        // Find all aerial connections involving this pole
+        const aerialConnections = processedKatapultData.connections.filter(connection => 
+          (connection.fromPoleId === katapultNodeId || connection.toPoleId === katapultNodeId) &&
+          (connection.buttonType.includes('aerial') || connection.buttonType === 'aerial_path')
+        );
+        
+        if (aerialConnections.length > 0) {
+          console.log(`DEBUG: Found ${aerialConnections.length} aerial connections in Katapult`);
+          
+          // Find a connection where this pole is the 'from' pole
+          const asFromPoleConnection = aerialConnections.find(conn => conn.fromPoleId === katapultNodeId);
+          if (asFromPoleConnection) {
+            // Find the corresponding node for the 'to' pole
+            for (const [nodeId, node] of this.katapultPoleLookupMap.entries()) {
+              if (node.id === asFromPoleConnection.toPoleId) {
+                toPole = nodeId;
+                console.log(`DEBUG: From Katapult - From: ${currentPoleId}, To: ${toPole}`);
+                break;
+              }
+            }
+          } else if (aerialConnections.length > 0) {
+            // Otherwise just use the first connection
+            const firstConnection = aerialConnections[0];
+            const otherPoleId = firstConnection.fromPoleId === katapultNodeId ? 
+              firstConnection.toPoleId : firstConnection.fromPoleId;
+            
+            // Find the corresponding node
+            for (const [nodeId, node] of this.katapultPoleLookupMap.entries()) {
+              if (node.id === otherPoleId) {
+                toPole = nodeId;
+                console.log(`DEBUG: From Katapult alternative - From: ${currentPoleId}, To: ${toPole}`);
+                break;
+              }
+            }
+          }
         }
       }
       
-      // If from/to not found, use the current pole as 'from' and the first connection as 'to'
-      if (fromPole === "N/A" && toPole === "N/A" && recommendedDesign.wireEndPoints.length > 0) {
-        fromPole = poleId;
+      // Final check for any REF connection if still no 'to' pole
+      if (toPole === "N/A") {
         for (const wireEndPoint of recommendedDesign.wireEndPoints) {
           if (wireEndPoint.structureLabel) {
             toPole = wireEndPoint.structureLabel;
+            console.log(`DEBUG: Using fallback to first wireEndPoint with label: ${toPole}`);
             break;
           }
         }
       }
       
-      // If still no to pole, try to find any connected structure
-      if (toPole === "N/A") {
-        for (const wireEndPoint of recommendedDesign.wireEndPoints) {
-          if (wireEndPoint.type !== "PREVIOUS_POLE" && wireEndPoint.structureLabel) {
-            toPole = wireEndPoint.structureLabel;
-            break;
-          }
-        }
-      }
-      
+      console.log(`DEBUG: Final From/To: ${fromPole} / ${toPole}`);
       return { from: fromPole, to: toPole };
     } catch (error) {
       console.warn("Error extracting from/to poles:", error);
-      return { from: "N/A", to: "N/A" };
+      return { from: this._canonicalizePoleID(poleLocationData.label), to: "N/A" };
     }
   }
 

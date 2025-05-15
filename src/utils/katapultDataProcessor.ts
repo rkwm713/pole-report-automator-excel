@@ -9,10 +9,20 @@ interface WireObservation {
   proposedHeightInches: number | null;
 }
 
+/**
+ * Enum to categorize wires by type
+ */
+export enum WireCategory {
+  COMMUNICATION = "COMMUNICATION",
+  CPS_ELECTRICAL = "CPS_ELECTRICAL",
+  OTHER = "OTHER"
+}
+
 interface WireData {
   traceId: string;
   company: string;
   cableType: string;
+  category: WireCategory; // Added category property
   midspanObservations: WireObservation[];
   poleAttachmentObservations: WireObservation[];
   lowestExistingMidspanHeight: number | null;
@@ -28,6 +38,58 @@ interface ConnectionData {
   buttonType: string;
   isRefConnection: boolean;
   wires: Record<string, WireData>;
+}
+
+/**
+ * Helper function to categorize a wire based on company and cable type
+ * @param company - Wire company/owner
+ * @param cableType - Wire cable type
+ * @returns The wire category (COMMUNICATION, CPS_ELECTRICAL, or OTHER)
+ */
+export function categorizeWire(company: string, cableType: string): WireCategory {
+  // Normalize inputs for case-insensitive comparison
+  const companyUpper = (company || '').toUpperCase();
+  const cableTypeUpper = (cableType || '').toUpperCase();
+  
+  // CPS Electrical wires
+  if (companyUpper.includes("CPS") || companyUpper.includes("CPS ENERGY")) {
+    // Check if it's a CPS communication wire
+    if (cableTypeUpper.includes("FIBER OPTIC COM") || 
+        cableTypeUpper.includes("TELCO COM") ||
+        cableTypeUpper.includes("COM DROP") ||
+        cableTypeUpper.includes("CATV COM") ||
+        cableTypeUpper.includes("COMMUNICATION")) {
+      return WireCategory.COMMUNICATION;
+    }
+    
+    // CPS electrical wires include primary, neutral, secondary, streetlight, supply fiber, etc.
+    if (cableTypeUpper.includes("PRIMARY") ||
+        cableTypeUpper.includes("NEUTRAL") ||
+        cableTypeUpper.includes("SECONDARY") ||
+        cableTypeUpper.includes("STREET LIGHT") ||
+        cableTypeUpper.includes("SUPPLY FIBER") ||
+        cableTypeUpper.includes("SERVICE")) {
+      return WireCategory.CPS_ELECTRICAL;
+    }
+    
+    // Default to CPS_ELECTRICAL for any other CPS wire
+    return WireCategory.CPS_ELECTRICAL;
+  }
+  
+  // All non-CPS wires from communication companies are Com wires
+  if (companyUpper.includes("AT&T") ||
+      companyUpper.includes("CHARTER") ||
+      companyUpper.includes("SPECTRUM") ||
+      companyUpper.includes("TIME WARNER") ||
+      companyUpper.includes("GRANDE") ||
+      cableTypeUpper.includes("COM") ||
+      cableTypeUpper.includes("FIBER") ||
+      cableTypeUpper.includes("TELCO") ||
+      cableTypeUpper.includes("COMMUNICATION")) {
+    return WireCategory.COMMUNICATION;
+  }
+  
+  return WireCategory.OTHER;
 }
 
 interface ProcessedResults {
@@ -197,10 +259,14 @@ export function processKatapultData(katapultJson: any): ProcessedResults {
                 // Get wire metadata from traces
                 const traceData = traces[traceId] || {};
                 
+                const company = traceData.company || 'Unknown';
+                const cableType = traceData.cable_type || 'Unknown';
+                
                 connection.wires[traceId] = {
                   traceId,
-                  company: traceData.company || 'Unknown',
-                  cableType: traceData.cable_type || 'Unknown',
+                  company,
+                  cableType,
+                  category: categorizeWire(company, cableType), // Categorize wire
                   midspanObservations: [],
                   poleAttachmentObservations: [],
                   lowestExistingMidspanHeight: null,
@@ -280,11 +346,14 @@ export function processKatapultData(katapultJson: any): ProcessedResults {
               if (!connection.wires[traceId]) {
                 // Get wire metadata from traces
                 const traceData = traces[traceId] || {};
+                const company = traceData.company || 'Unknown';
+                const cableType = traceData.cable_type || 'Unknown';
                 
                 connection.wires[traceId] = {
                   traceId,
-                  company: traceData.company || 'Unknown',
-                  cableType: traceData.cable_type || 'Unknown',
+                  company,
+                  cableType,
+                  category: categorizeWire(company, cableType),
                   midspanObservations: [],
                   poleAttachmentObservations: [],
                   lowestExistingMidspanHeight: null,
