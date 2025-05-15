@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { readFileAsText, downloadFile } from '@/lib/fileUtils';
@@ -10,7 +9,6 @@ import FileUploader from '@/components/FileUploader';
 import ProcessingStatus from '@/components/ProcessingStatus';
 import DataPreview from '@/components/DataPreview';
 import { FileText, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
 // Add dependency to package.json
 // <lov-add-dependency>xlsx@latest</lov-add-dependency>
