@@ -68,6 +68,38 @@ export class PoleExcelGenerator {
   }
 
   /**
+   * Safely convert any value to string, handling objects and arrays
+   */
+  private _safeToString(value: any): string {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    
+    if (typeof value === 'object') {
+      // Handle objects properly to avoid "[object Object]"
+      if (value.description) {
+        return String(value.description);
+      }
+      if (value.type) {
+        return String(value.type);
+      }
+      if (value.name) {
+        return String(value.name);
+      }
+      
+      // Try JSON stringify as a fallback, but handle circular references
+      try {
+        return JSON.stringify(value);
+      } catch (e) {
+        console.warn("Failed to stringify object:", value);
+        return String(value);
+      }
+    }
+    
+    return String(value);
+  }
+
+  /**
    * PRIVATE: Add header rows to worksheet
    */
   private _addHeaderRows(ws: XLSX.WorkSheet): void {
@@ -155,19 +187,19 @@ export class PoleExcelGenerator {
    * PRIVATE: Write pole-level data (columns A-K)
    */
   private _writePoleData(ws: XLSX.WorkSheet, pole: PoleData, row: number): void {
-    // Add pole data
+    // Add pole data (ensure all values are strings)
     XLSX.utils.sheet_add_aoa(ws, [[
-      pole.operationNumber,
-      pole.attachmentAction,
-      pole.poleOwner,
-      pole.poleNumber,
-      pole.poleStructure,
-      pole.proposedRiser,
-      pole.proposedGuy,
-      pole.pla,
-      pole.constructionGrade,
-      pole.heightLowestCom,
-      pole.heightLowestCpsElectrical
+      this._safeToString(pole.operationNumber),
+      this._safeToString(pole.attachmentAction),
+      this._safeToString(pole.poleOwner),
+      this._safeToString(pole.poleNumber),
+      this._safeToString(pole.poleStructure),
+      this._safeToString(pole.proposedRiser),
+      this._safeToString(pole.proposedGuy),
+      this._safeToString(pole.pla),
+      this._safeToString(pole.constructionGrade),
+      this._safeToString(pole.heightLowestCom),
+      this._safeToString(pole.heightLowestCpsElectrical)
     ]], { origin: `A${row}` });
     
     // Log the data being written for debugging
@@ -200,7 +232,7 @@ export class PoleExcelGenerator {
     for (const span of pole.spans) {
       // Write span header with enhanced formatting
       XLSX.utils.sheet_add_aoa(ws, [[
-        span.spanHeader, "", "", ""
+        this._safeToString(span.spanHeader), "", "", ""
       ]], { origin: `L${currentRow}` });
       
       // Move to next row
@@ -208,16 +240,16 @@ export class PoleExcelGenerator {
       
       // Write attachments
       for (const attachment of span.attachments) {
-        // Write attachment data
+        // Write attachment data (ensuring all values are properly stringified)
         XLSX.utils.sheet_add_aoa(ws, [[
-          attachment.description,
-          attachment.existingHeight,
-          attachment.proposedHeight,
-          attachment.midSpanProposed
+          this._safeToString(attachment.description),
+          this._safeToString(attachment.existingHeight),
+          this._safeToString(attachment.proposedHeight),
+          this._safeToString(attachment.midSpanProposed)
         ]], { origin: `L${currentRow}` });
         
         // Log for debugging
-        console.log(`DEBUG: Writing attachment: ${attachment.description}, existing: ${attachment.existingHeight}, proposed: ${attachment.proposedHeight}`);
+        console.log(`DEBUG: Writing attachment: ${this._safeToString(attachment.description)}, existing: ${this._safeToString(attachment.existingHeight)}, proposed: ${this._safeToString(attachment.proposedHeight)}`);
         
         // Move to next row
         currentRow++;
@@ -254,20 +286,20 @@ export class PoleExcelGenerator {
     // Add "From Pole" row
     XLSX.utils.sheet_add_aoa(ws, [[
       "", "", "", "", "", "", "", "", "", "", "",
-      "From Pole", pole.fromPole, "", ""
+      "From Pole", this._safeToString(pole.fromPole), "", ""
     ]], { origin: `A${currentRow}` });
     
-    console.log(`DEBUG: Writing From Pole: ${pole.fromPole} at row ${currentRow}`);
+    console.log(`DEBUG: Writing From Pole: ${this._safeToString(pole.fromPole)} at row ${currentRow}`);
     
     currentRow++;
     
     // Add "To Pole" row
     XLSX.utils.sheet_add_aoa(ws, [[
       "", "", "", "", "", "", "", "", "", "", "",
-      "To Pole", pole.toPole, "", ""
+      "To Pole", this._safeToString(pole.toPole), "", ""
     ]], { origin: `A${currentRow}` });
     
-    console.log(`DEBUG: Writing To Pole: ${pole.toPole} at row ${currentRow}`);
+    console.log(`DEBUG: Writing To Pole: ${this._safeToString(pole.toPole)} at row ${currentRow}`);
     
     return currentRow + 1;
   }
