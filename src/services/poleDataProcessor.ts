@@ -1,5 +1,3 @@
-
-
 /**
  * Service for processing SPIDA and Katapult data into Excel reports
  */
@@ -744,64 +742,11 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract pole owner information from multiple possible sources
-   * UPDATED to improve extraction based on README documentation
+   * UPDATED to always return "CPS" regardless of input data
    */
   private _extractPoleOwner(poleLocationData: any, katapultPoleData: any): string {
-    try {
-      // Log available paths for debugging
-      console.log("DEBUG: Checking pole owner paths");
-      
-      // Log all potential paths for debugging
-      if (katapultPoleData?.properties?.poleOwner) {
-        console.log(`DEBUG: Found poleOwner in katapultData.properties.poleOwner: ${katapultPoleData.properties.poleOwner}`);
-      }
-      if (katapultPoleData?.properties?.owner) {
-        console.log(`DEBUG: Found owner in katapultData.properties.owner: ${katapultPoleData.properties.owner}`);
-      }
-      if (katapultPoleData?.properties?.Owner) {
-        console.log(`DEBUG: Found Owner in katapultData.properties.Owner: ${katapultPoleData.properties.Owner}`);
-      }
-      if (poleLocationData?.structure?.pole?.owner?.id) {
-        console.log(`DEBUG: Found owner in spidaData.structure.pole.owner.id: ${poleLocationData.structure.pole.owner.id}`);
-      }
-      
-      // Enhanced pole owner extraction - try multiple paths
-      
-      // Try multiple paths in Katapult data first (prioritize)
-      if (katapultPoleData) {
-        // Check all possible paths for pole owner in Katapult
-        const katapultOwner = 
-          katapultPoleData.properties?.poleOwner ||
-          katapultPoleData.properties?.owner ||
-          katapultPoleData.properties?.Owner ||
-          katapultPoleData.properties?.PoleOwner ||
-          katapultPoleData.poleOwner ||
-          katapultPoleData.owner ||
-          katapultPoleData.Owner;
-          
-        if (katapultOwner) {
-          console.log(`DEBUG: Using pole owner from Katapult: ${katapultOwner}`);
-          return katapultOwner;
-        }
-      }
-      
-      // Fallback to multiple possible SPIDA paths 
-      const spidaOwner = 
-        poleLocationData?.structure?.pole?.owner?.id ||
-        poleLocationData?.structure?.pole?.clientItem?.owner ||
-        poleLocationData?.owner?.id;
-      
-      if (spidaOwner) {
-        console.log(`DEBUG: Using pole owner from SPIDA: ${spidaOwner}`);
-        return spidaOwner;
-      }
-      
-      console.log("DEBUG: No pole owner found, using 'Unknown'");
-      return "Unknown";
-    } catch (error) {
-      console.error("Error extracting pole owner:", error);
-      return "Unknown";
-    }
+    // Always return CPS as the pole owner
+    return "CPS";
   }
 
   /**
@@ -1634,4 +1579,3 @@ export class PoleDataProcessor {
     return directions[index];
   }
 }
-
