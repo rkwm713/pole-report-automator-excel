@@ -133,8 +133,9 @@ export class PoleDataProcessor {
       this.katapultPoleLookupMap.clear();
       this.operationCounter = 1;
 
-      // Add debug logging for Katapult data structure
-      console.log("DEBUG: Katapult data structure:", JSON.stringify(this.katapultData).substring(0, 500) + "...");
+      // Add enhanced debug logging for data structure
+      console.log("DEBUG: Processing SPIDA and Katapult data");
+      console.log("DEBUG: SPIDA data structure:", JSON.stringify(this.spidaData).substring(0, 500) + "...");
       
       if (typeof this.katapultData === 'object') {
         console.log("DEBUG: Katapult data keys:", Object.keys(this.katapultData));
@@ -145,17 +146,31 @@ export class PoleDataProcessor {
       
       // Process each pole from SPIDA data
       if (this.spidaData?.leads?.[0]?.locations) {
+        console.log(`DEBUG: Found ${this.spidaData.leads[0].locations.length} locations/poles in SPIDA data`);
+        
         for (const poleLocationData of this.spidaData.leads[0].locations) {
           try {
             const canonicalPoleId = this._canonicalizePoleID(poleLocationData.label);
+            console.log(`DEBUG: Processing pole ${canonicalPoleId} (original label: ${poleLocationData.label})`);
+            
             const katapultPoleData = this.katapultPoleLookupMap.get(canonicalPoleId);
             
             if (!katapultPoleData) {
               console.warn(`No matching Katapult data found for pole ${canonicalPoleId}`);
+            } else {
+              console.log(`DEBUG: Found matching Katapult data for pole ${canonicalPoleId}`);
             }
             
             const poleData = this._extractPoleData(poleLocationData, katapultPoleData);
             if (poleData) {
+              // Log the extracted data for debugging
+              console.log(`DEBUG: Extracted pole data: ${JSON.stringify({
+                poleNumber: poleData.poleNumber,
+                poleOwner: poleData.poleOwner,
+                poleStructure: poleData.poleStructure,
+                pla: poleData.pla,
+                constructionGrade: poleData.constructionGrade
+              })}`);
               this.processedPoles.push(poleData);
             }
           } catch (error) {
@@ -492,10 +507,10 @@ export class PoleDataProcessor {
           console.warn(`Could not process pole ${poleLocationData?.label}:`, error);
         }
       }
+      console.log(`DEBUG: Created lookup map for ${this.poleLookupMap.size} SPIDA poles`);
     }
     
-    // Create maps for Katapult poles
-    // Make this method more robust to handle different Katapult data structures
+    // Create maps for Katapult poles - More robust implementation
     try {
       // Log Katapult structure for debugging
       console.log("DEBUG: Katapult structure check at _createPoleLookupMaps");
@@ -583,6 +598,8 @@ export class PoleDataProcessor {
           console.warn(`Could not process Katapult node:`, error);
         }
       }
+      
+      console.log(`DEBUG: Created Katapult lookup map with ${this.katapultPoleLookupMap.size} poles`);
     } catch (error) {
       console.error("Error creating Katapult lookup map:", error);
     }
@@ -595,25 +612,28 @@ export class PoleDataProcessor {
    */
   private _extractPoleData(poleLocationData: any, katapultPoleData: any): PoleData | null {
     try {
+      // Log the full pole data structure for debugging (truncated to avoid massive logs)
+      console.log(`DEBUG: Pole location data structure: ${JSON.stringify(poleLocationData).substring(0, 500)}...`);
+      
       // Find design indices
       const designIndices = this._findDesignIndices(poleLocationData);
       if (!designIndices) {
         throw new Error("Could not find required designs in pole data");
       }
       
+      console.log(`DEBUG: Found design indices: measured=${designIndices.measured}, recommended=${designIndices.recommended}`);
+      
       // Extract basic pole information
       const canonicalPoleId = this._canonicalizePoleID(poleLocationData.label);
       
       // Extract pole owner (prioritize Katapult if available)
-      let poleOwner = "Unknown";
-      if (katapultPoleData?.properties?.poleOwner) {
-        poleOwner = katapultPoleData.properties.poleOwner;
-      } else if (poleLocationData?.structure?.pole?.owner?.id) {
-        poleOwner = poleLocationData.structure.pole.owner.id;
-      }
+      // Updated pole owner extraction with better path traversal
+      let poleOwner = this._extractPoleOwner(poleLocationData, katapultPoleData);
+      console.log(`DEBUG: Extracted pole owner: ${poleOwner}`);
       
-      // Extract pole structure details
+      // Extract pole structure details with improved extraction
       const poleStructure = this._extractPoleStructure(poleLocationData);
+      console.log(`DEBUG: Extracted pole structure: ${poleStructure}`);
       
       // Extract proposed riser information
       const proposedRiser = this._extractProposedRiserInfo(poleLocationData, designIndices.recommended);
@@ -621,11 +641,13 @@ export class PoleDataProcessor {
       // Extract proposed guy information
       const proposedGuy = this._extractProposedGuyInfo(poleLocationData, designIndices.recommended);
       
-      // Extract PLA value
+      // Extract PLA value with improved analysis case targeting
       const plaInfo = this._extractPLA(poleLocationData);
+      console.log(`DEBUG: Extracted PLA: ${plaInfo.pla} (${plaInfo.actual})`);
       
-      // Extract construction grade
+      // Extract construction grade with improved extraction
       const constructionGrade = this._extractConstructionGrade(poleLocationData);
+      console.log(`DEBUG: Extracted construction grade: ${constructionGrade}`);
       
       // Extract midspan height data
       const midspanHeights = this._extractExistingMidspanData(poleLocationData, katapultPoleData);
@@ -633,7 +655,7 @@ export class PoleDataProcessor {
       // Extract span data with attachments
       const spans = this._extractSpanData(poleLocationData, designIndices);
       
-      // Extract from/to pole information (prioritize Katapult if available)
+      // Extract from/to pole information
       const fromToPoles = this._extractFromToPoles(poleLocationData, katapultPoleData);
       
       // Determine attachment action
@@ -670,12 +692,149 @@ export class PoleDataProcessor {
   }
 
   /**
+   * PRIVATE: Extract pole owner information from multiple possible sources
+   * NEW METHOD to improve pole owner extraction
+   */
+  private _extractPoleOwner(poleLocationData: any, katapultPoleData: any): string {
+    try {
+      // Log available paths for debugging
+      console.log("DEBUG: Checking pole owner paths");
+      if (katapultPoleData?.properties?.poleOwner) {
+        console.log(`DEBUG: Found poleOwner in katapultData.properties.poleOwner: ${katapultPoleData.properties.poleOwner}`);
+      }
+      if (katapultPoleData?.properties?.owner) {
+        console.log(`DEBUG: Found owner in katapultData.properties.owner: ${katapultPoleData.properties.owner}`);
+      }
+      if (poleLocationData?.structure?.pole?.owner?.id) {
+        console.log(`DEBUG: Found owner in spidaData.structure.pole.owner.id: ${poleLocationData.structure.pole.owner.id}`);
+      }
+      
+      // Try multiple paths in Katapult data first (prioritize)
+      if (katapultPoleData) {
+        // Check all possible paths for pole owner in Katapult
+        const katapultOwner = 
+          katapultPoleData.properties?.poleOwner ||
+          katapultPoleData.properties?.owner ||
+          katapultPoleData.properties?.PoleOwner ||
+          katapultPoleData.poleOwner ||
+          katapultPoleData.owner;
+          
+        if (katapultOwner) {
+          console.log(`DEBUG: Using pole owner from Katapult: ${katapultOwner}`);
+          return katapultOwner;
+        }
+      }
+      
+      // Fallback to SPIDA data if no owner in Katapult
+      if (poleLocationData?.structure?.pole?.owner?.id) {
+        console.log(`DEBUG: Using pole owner from SPIDA: ${poleLocationData.structure.pole.owner.id}`);
+        return poleLocationData.structure.pole.owner.id;
+      }
+      
+      // Further fallback - try to find any owner-like field in SPIDA
+      if (poleLocationData?.structure?.pole?.clientItem?.owner) {
+        console.log(`DEBUG: Using pole owner from alternative SPIDA path: ${poleLocationData.structure.pole.clientItem.owner}`);
+        return poleLocationData.structure.pole.clientItem.owner;
+      }
+      
+      console.log("DEBUG: No pole owner found, using 'Unknown'");
+      return "Unknown";
+    } catch (error) {
+      console.error("Error extracting pole owner:", error);
+      return "Unknown";
+    }
+  }
+
+  /**
+   * PRIVATE: Extract pole structure information
+   * UPDATED to match README documentation
+   */
+  private _extractPoleStructure(poleLocationData: any): string {
+    try {
+      console.log("DEBUG: Extracting pole structure details");
+      const pole = poleLocationData?.structure?.pole;
+      if (!pole) {
+        console.log("DEBUG: No pole structure data found");
+        return "Unknown";
+      }
+      
+      // Log available data for debugging
+      if (pole.clientItem) {
+        console.log("DEBUG: Available clientItem keys:", Object.keys(pole.clientItem));
+      }
+      
+      // Get height and convert from meters to feet
+      let height = "";
+      if (pole.clientItem?.height?.value) {
+        const meters = pole.clientItem.height.value;
+        const feet = this._metersToFeet(meters);
+        height = `${Math.round(feet)}'`;
+        console.log(`DEBUG: Extracted height: ${meters}m converted to ${height}`);
+      } else {
+        console.log("DEBUG: No height value found in pole.clientItem.height.value");
+      }
+      
+      // Get class
+      let poleClass = "";
+      if (pole.clientItem?.classOfPole) {
+        poleClass = pole.clientItem.classOfPole;
+        console.log(`DEBUG: Extracted pole class: ${poleClass}`);
+      } else {
+        console.log("DEBUG: No classOfPole found in pole.clientItem");
+      }
+      
+      // Get species
+      let species = "";
+      if (pole.clientItem?.species) {
+        species = pole.clientItem.species;
+        console.log(`DEBUG: Extracted pole species: ${species}`);
+      } else {
+        console.log("DEBUG: No species found in pole.clientItem");
+      }
+      
+      // Alternative paths if primary paths fail
+      if (!height && pole.clientItemAlias) {
+        // Try to extract height from clientItemAlias (e.g., "40-4")
+        const parts = pole.clientItemAlias.split('-');
+        if (parts.length >= 1 && !isNaN(parseInt(parts[0]))) {
+          height = `${parts[0]}'`;
+          console.log(`DEBUG: Extracted height from clientItemAlias: ${height}`);
+        }
+      }
+      
+      if (!poleClass && pole.clientItemAlias) {
+        // Try to extract class from clientItemAlias (e.g., "40-4")
+        const parts = pole.clientItemAlias.split('-');
+        if (parts.length >= 2 && !isNaN(parseInt(parts[1]))) {
+          poleClass = parts[1];
+          console.log(`DEBUG: Extracted class from clientItemAlias: ${poleClass}`);
+        }
+      }
+      
+      const structureStr = `${height}${poleClass ? '-Class ' + poleClass : ''} ${species}`.trim();
+      console.log(`DEBUG: Final pole structure string: "${structureStr}"`);
+      return structureStr || "Unknown";
+    } catch (error) {
+      console.error("Error extracting pole structure:", error);
+      return "Unknown";
+    }
+  }
+
+  /**
    * PRIVATE: Find indices for "Measured Design" and "Recommended Design"
    */
   private _findDesignIndices(poleLocationData: any): { measured: number, recommended: number } | null {
     if (!poleLocationData?.designs || !Array.isArray(poleLocationData.designs)) {
+      console.log("DEBUG: No designs array found in pole location data");
       return null;
     }
+    
+    console.log(`DEBUG: Searching for design indices in ${poleLocationData.designs.length} designs`);
+    
+    // Log all design names for debugging
+    const designNames = poleLocationData.designs.map((d: any, i: number) => 
+      `[${i}]: ${d?.name || 'Unnamed'}`).join(', ');
+    console.log(`DEBUG: Available designs: ${designNames}`);
     
     let measuredIdx = -1;
     let recommendedIdx = -1;
@@ -684,57 +843,34 @@ export class PoleDataProcessor {
       const design = poleLocationData.designs[i];
       if (design?.name?.includes("Measured Design")) {
         measuredIdx = i;
+        console.log(`DEBUG: Found Measured Design at index ${i}`);
       }
       if (design?.name?.includes("Recommended Design")) {
         recommendedIdx = i;
+        console.log(`DEBUG: Found Recommended Design at index ${i}`);
       }
     }
     
     // Fallback to first two designs if specific names not found
     if (measuredIdx === -1 && poleLocationData.designs.length > 0) {
       measuredIdx = 0;
+      console.log(`DEBUG: Fallback: Using first design as Measured Design (index 0)`);
     }
     if (recommendedIdx === -1 && poleLocationData.designs.length > 1) {
       recommendedIdx = 1;
+      console.log(`DEBUG: Fallback: Using second design as Recommended Design (index 1)`);
     } else if (recommendedIdx === -1 && measuredIdx === 0) {
       // If only one design, use it for both
       recommendedIdx = 0;
+      console.log(`DEBUG: Fallback: Using the only available design for both Measured and Recommended (index 0)`);
     }
     
     if (measuredIdx === -1 || recommendedIdx === -1) {
+      console.log("DEBUG: Could not find required designs");
       return null;
     }
     
     return { measured: measuredIdx, recommended: recommendedIdx };
-  }
-
-  /**
-   * PRIVATE: Extract pole structure information
-   */
-  private _extractPoleStructure(poleLocationData: any): string {
-    try {
-      const pole = poleLocationData?.structure?.pole;
-      if (!pole) return "Unknown";
-      
-      // Get height and convert from meters to feet
-      let height = "";
-      if (pole.clientItem?.height?.value) {
-        const meters = pole.clientItem.height.value;
-        const feet = this._metersToFeet(meters);
-        height = `${Math.round(feet)}'`;
-      }
-      
-      // Get class
-      const poleClass = pole.clientItem?.classOfPole || "";
-      
-      // Get species
-      const species = pole.clientItem?.species || "";
-      
-      return `${height}-Class ${poleClass} ${species}`.trim();
-    } catch (error) {
-      console.warn("Error extracting pole structure:", error);
-      return "Unknown";
-    }
   }
 
   /**
@@ -778,41 +914,87 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Extract PLA value
+   * UPDATED to match README documentation and fix missing PLA issue
    */
   private _extractPLA(poleLocationData: any): { pla: string, actual: number } {
     try {
       // Find the target analysis case (assuming "Light - Grade C" or similar)
       const analysisObjects = poleLocationData?.analysis;
       if (!analysisObjects || !Array.isArray(analysisObjects)) {
+        console.log("DEBUG: No analysis objects found in pole location data");
         return { pla: "N/A", actual: 0 };
       }
       
-      // Look for the recommended design analysis case
+      console.log(`DEBUG: Found ${analysisObjects.length} analysis objects`);
+      
+      // Log all analysis case names for debugging
+      const caseNames = analysisObjects.map((a: any, i: number) => 
+        `[${i}]: ${a?.analysisCaseDetails?.name || 'Unnamed'}`).join(', ');
+      console.log(`DEBUG: Available analysis cases: ${caseNames}`);
+      
+      // Look for the recommended design analysis case - trying multiple match patterns
       let targetAnalysis = null;
-      for (const analysis of analysisObjects) {
-        const caseName = analysis?.analysisCaseDetails?.name || "";
-        if (
-          caseName.includes("Recommended") || 
-          caseName.includes("Light - Grade") ||
-          caseName.includes("Grade C")
-        ) {
-          targetAnalysis = analysis;
-          break;
+      
+      // First, try exact matches for known patterns
+      const knownPatterns = [
+        "Recommended Design",
+        "Light - Grade C",
+        "Grade C"
+      ];
+      
+      for (const pattern of knownPatterns) {
+        for (const analysis of analysisObjects) {
+          const caseName = analysis?.analysisCaseDetails?.name || "";
+          if (caseName.includes(pattern)) {
+            targetAnalysis = analysis;
+            console.log(`DEBUG: Found analysis case matching "${pattern}": ${caseName}`);
+            break;
+          }
+        }
+        if (targetAnalysis) break;
+      }
+      
+      // If no exact matches, look for any case with "Recommended" or "Grade"
+      if (!targetAnalysis) {
+        for (const analysis of analysisObjects) {
+          const caseName = analysis?.analysisCaseDetails?.name || "";
+          if (
+            caseName.includes("Recommended") || 
+            caseName.includes("Grade") ||
+            caseName.includes("NESC")
+          ) {
+            targetAnalysis = analysis;
+            console.log(`DEBUG: Found alternative analysis case: ${caseName}`);
+            break;
+          }
         }
       }
       
       // Use the first analysis if specific case not found
       if (!targetAnalysis && analysisObjects.length > 0) {
         targetAnalysis = analysisObjects[0];
+        console.log(`DEBUG: Using first available analysis case as fallback: ${targetAnalysis?.analysisCaseDetails?.name || 'Unnamed'}`);
       }
       
       // If still no analysis found
       if (!targetAnalysis) {
+        console.log("DEBUG: No suitable analysis case found");
         return { pla: "N/A", actual: 0 };
       }
       
       // Find the pole stress result
       const results = targetAnalysis.results || [];
+      if (results.length === 0) {
+        console.log("DEBUG: No results found in the target analysis case");
+      } else {
+        console.log(`DEBUG: Found ${results.length} results in the analysis case`);
+        
+        // Log all result types for debugging
+        const resultTypes = results.map((r: any, i: number) => 
+          `[${i}]: component=${r.component}, type=${r.analysisType}, actual=${r.actual}`).join('; ');
+        console.log(`DEBUG: Available results: ${resultTypes}`);
+      }
+      
       for (const result of results) {
         if (
           result.component === "Pole" && 
@@ -821,6 +1003,7 @@ export class PoleDataProcessor {
           const plaValue = result.actual;
           if (typeof plaValue === "number") {
             // Format as percentage with 2 decimal places
+            console.log(`DEBUG: Found PLA value: ${plaValue}`);
             return { 
               pla: `${plaValue.toFixed(2)}%`, 
               actual: plaValue 
@@ -829,35 +1012,68 @@ export class PoleDataProcessor {
         }
       }
       
+      console.log("DEBUG: No suitable PLA result found");
       return { pla: "N/A", actual: 0 };
     } catch (error) {
-      console.warn("Error extracting PLA:", error);
+      console.error("Error extracting PLA:", error);
       return { pla: "N/A", actual: 0 };
     }
   }
 
   /**
    * PRIVATE: Extract construction grade
+   * UPDATED to match README documentation
    */
   private _extractConstructionGrade(poleLocationData: any): string {
     try {
       // Find the target analysis case
       const analysisObjects = poleLocationData?.analysis;
       if (!analysisObjects || !Array.isArray(analysisObjects)) {
+        console.log("DEBUG: No analysis objects found for construction grade extraction");
         return "N/A";
       }
       
-      // Look for the recommended design analysis case
+      console.log(`DEBUG: Extracting construction grade from ${analysisObjects.length} analysis objects`);
+      
+      // First try to find a recommended design analysis
       for (const analysis of analysisObjects) {
+        const caseName = analysis?.analysisCaseDetails?.name || "";
         const constructionGrade = analysis?.analysisCaseDetails?.constructionGrade;
-        if (constructionGrade) {
+        
+        console.log(`DEBUG: Checking analysis case "${caseName}" for construction grade: ${constructionGrade}`);
+        
+        if (caseName.includes("Recommended") && constructionGrade) {
+          console.log(`DEBUG: Found construction grade ${constructionGrade} in recommended analysis`);
           return `Grade ${constructionGrade}`;
         }
       }
       
+      // If not found in recommended analysis, check any analysis case with a grade
+      for (const analysis of analysisObjects) {
+        const constructionGrade = analysis?.analysisCaseDetails?.constructionGrade;
+        if (constructionGrade) {
+          console.log(`DEBUG: Found construction grade ${constructionGrade} in general analysis`);
+          return `Grade ${constructionGrade}`;
+        }
+      }
+      
+      // Also check the analysis name for grade information
+      for (const analysis of analysisObjects) {
+        const caseName = analysis?.analysisCaseDetails?.name || "";
+        if (caseName.includes("Grade")) {
+          // Try to extract grade from the name (e.g., "Light - Grade C")
+          const match = caseName.match(/Grade\s+([A-C])/i);
+          if (match && match[1]) {
+            console.log(`DEBUG: Extracted grade ${match[1]} from analysis name "${caseName}"`);
+            return `Grade ${match[1]}`;
+          }
+        }
+      }
+      
+      console.log("DEBUG: No construction grade found");
       return "N/A";
     } catch (error) {
-      console.warn("Error extracting construction grade:", error);
+      console.error("Error extracting construction grade:", error);
       return "N/A";
     }
   }
@@ -1264,21 +1480,36 @@ export class PoleDataProcessor {
 
   /**
    * PRIVATE: Standardize pole IDs across data sources
+   * UPDATED to be more flexible with pole ID formats
    */
   private _canonicalizePoleID(poleID: string): string {
     if (!poleID) return "Unknown";
     
+    console.log(`DEBUG: Canonicalizing pole ID: ${poleID}`);
+    
     // Extract core pole ID by removing prefixes, etc.
-    // This implementation will need to be adjusted based on actual pole ID formats
-    
-    // Example: strip prefix like "1-PL410620" to get "PL410620"
-    // This is just a sample implementation and should be adjusted
-    
-    const match = poleID.match(/[A-Z]{2}\d+/);
+    // First try to match a pattern like "PL######"
+    let match = poleID.match(/[A-Z]{2}\d+/);
     if (match) {
+      console.log(`DEBUG: Extracted canonical pole ID: ${match[0]} (using regex pattern)`);
       return match[0];
     }
     
+    // If that fails, try to extract numeric portion with 1-2 letter prefix
+    match = poleID.match(/[A-Z]{1,2}[0-9]+/);
+    if (match) {
+      console.log(`DEBUG: Extracted canonical pole ID: ${match[0]} (using alternate pattern)`);
+      return match[0];
+    }
+    
+    // If both regex attempts fail, remove common prefixes like "1-" or numbers followed by dash
+    const cleanId = poleID.replace(/^\d+-/, '');
+    if (cleanId !== poleID) {
+      console.log(`DEBUG: Cleaned pole ID by removing prefix: ${cleanId}`);
+      return cleanId;
+    }
+    
+    console.log(`DEBUG: Using original pole ID: ${poleID}`);
     return poleID;
   }
 
