@@ -1,8 +1,142 @@
 
 /**
+ * PoleData interface represents the processed pole data structure
+ */
+export interface PoleData {
+  poleNumber: string;
+  operationNumber: string;
+  poleOwner: string;
+  attachmentAction: string;
+  pla: string;
+  spans: Array<any>;
+}
+
+/**
  * PoleDataProcessor class contains methods to extract construction grade
  */
-class PoleDataProcessor {
+export class PoleDataProcessor {
+  private spidaData: any = null;
+  private katapultData: any = null;
+  private processedPoles: PoleData[] = [];
+  private errors: Array<{ code: string; message: string; details?: string }> = [];
+  
+  /**
+   * Load SPIDA Data
+   */
+  loadSpidaData(jsonContent: string): boolean {
+    try {
+      this.spidaData = JSON.parse(jsonContent);
+      return true;
+    } catch (error) {
+      this.errors.push({
+        code: 'SPIDA_PARSE_ERROR',
+        message: 'Failed to parse SPIDA data',
+        details: error instanceof Error ? error.message : String(error)
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * Load Katapult Data
+   */
+  loadKatapultData(jsonContent: string): boolean {
+    try {
+      this.katapultData = JSON.parse(jsonContent);
+      return true;
+    } catch (error) {
+      this.errors.push({
+        code: 'KATAPULT_PARSE_ERROR',
+        message: 'Failed to parse Katapult data',
+        details: error instanceof Error ? error.message : String(error)
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * Process Data
+   */
+  processData(): boolean {
+    try {
+      // Reset any previous processing
+      this.processedPoles = [];
+      this.errors = [];
+      
+      // Check if data is loaded
+      if (!this.spidaData || !this.katapultData) {
+        this.errors.push({
+          code: 'NO_DATA',
+          message: 'Both SPIDA and Katapult data must be loaded before processing'
+        });
+        return false;
+      }
+      
+      // For now, just create some sample processed poles
+      this.processedPoles = [
+        {
+          poleNumber: "P123",
+          operationNumber: "OP-456",
+          poleOwner: "Utility Co.",
+          attachmentAction: "Transfer",
+          pla: "Yes",
+          spans: []
+        },
+        {
+          poleNumber: "P124",
+          operationNumber: "OP-457",
+          poleOwner: "Telecom Inc.",
+          attachmentAction: "New",
+          pla: "No",
+          spans: []
+        }
+      ];
+      
+      return true;
+    } catch (error) {
+      this.errors.push({
+        code: 'PROCESSING_ERROR',
+        message: 'Error processing data',
+        details: error instanceof Error ? error.message : String(error)
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * Get Processed Poles
+   */
+  getProcessedPoles(): PoleData[] {
+    return this.processedPoles;
+  }
+  
+  /**
+   * Get Processed Pole Count
+   */
+  getProcessedPoleCount(): number {
+    return this.processedPoles.length;
+  }
+  
+  /**
+   * Get Errors
+   */
+  getErrors(): Array<{ code: string; message: string; details?: string }> {
+    return this.errors;
+  }
+  
+  /**
+   * Generate Excel
+   */
+  generateExcel(): Blob | null {
+    if (this.processedPoles.length === 0) {
+      return null;
+    }
+    
+    // In a real implementation, this would generate an actual Excel file
+    // For now, just return a simple text blob
+    return new Blob(['Sample Excel Data'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  
   /**
    * PRIVATE: Extract construction grade
    */
@@ -92,5 +226,5 @@ class PoleDataProcessor {
   }
 }
 
-// Export an instance of the class
+// Export an instance of the class for convenience
 export const poleDataProcessor = new PoleDataProcessor();
