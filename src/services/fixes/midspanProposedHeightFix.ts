@@ -105,13 +105,21 @@ export function fixMidspanProposedHeight(poleDataProcessor: any) {
         if (conn && typeof conn === 'object' && 'sections' in conn && conn.sections) {
           const sections = conn.sections;
           if (typeof sections === 'object') {
+            // Iterate through sections with proper type checking
             for (const sectionId in sections) {
-              const section = sections[sectionId as keyof typeof sections];
-              if (section && typeof section === 'object' && 
-                  'attachments_on_section' in section && 
-                  section.attachments_on_section && 
-                  section.attachments_on_section[attachment.traceId]) {
-                return true;
+              // Fix: Add proper type guard before accessing properties
+              const section = sections[sectionId];
+              if (section && typeof section === 'object') {
+                // Fix: Check if attachments_on_section exists before accessing it
+                if ('attachments_on_section' in section && 
+                    section.attachments_on_section && 
+                    typeof section.attachments_on_section === 'object') {
+                  // Check if the trace ID exists in attachments_on_section
+                  const attachmentsOnSection = section.attachments_on_section as Record<string, any>;
+                  if (attachment.traceId in attachmentsOnSection) {
+                    return true;
+                  }
+                }
               }
             }
           }

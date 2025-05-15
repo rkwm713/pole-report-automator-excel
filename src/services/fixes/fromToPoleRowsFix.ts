@@ -79,11 +79,18 @@ export function fixFromToPoleRows(poleDataProcessor: any) {
     if (connectedPoleId && this.katapultData.nodes) {
       // Check if nodes has the connectedPoleId as a key
       const nodes = this.katapultData.nodes as Record<string, any>;
+      
+      // Fix: Add type check for connectedPoleId before using it as an index
+      if (typeof connectedPoleId !== 'string' && typeof connectedPoleId !== 'number') {
+        return null;
+      }
+      
+      // Fix: Now we can safely use connectedPoleId as an index since we know it's a valid key type
       if (!(connectedPoleId in nodes)) {
         return null;
       }
       
-      const connectedPoleNode = nodes[connectedPoleId];
+      const connectedPoleNode = nodes[connectedPoleId as string];
       if (!connectedPoleNode || typeof connectedPoleNode !== 'object') {
         return null;
       }
