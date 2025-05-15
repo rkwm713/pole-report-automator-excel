@@ -1,4 +1,8 @@
 
+/**
+ * PoleDataProcessor class contains methods to extract construction grade
+ */
+class PoleDataProcessor {
   /**
    * PRIVATE: Extract construction grade
    */
@@ -55,3 +59,38 @@
       return "Grade C"; // Default to Grade C on error
     }
   }
+
+  /**
+   * PRIVATE: Find design indices in pole location data
+   */
+  private _findDesignIndices(poleLocationData: any): { recommended: number } | null {
+    try {
+      if (!poleLocationData.designs || !Array.isArray(poleLocationData.designs)) {
+        return null;
+      }
+      
+      // Find the recommended design
+      let recommendedIndex = -1;
+      for (let i = 0; i < poleLocationData.designs.length; i++) {
+        if (poleLocationData.designs[i].status === "recommended") {
+          recommendedIndex = i;
+          break;
+        }
+      }
+      
+      if (recommendedIndex === -1) {
+        return null;
+      }
+      
+      return {
+        recommended: recommendedIndex
+      };
+    } catch (error) {
+      console.warn("Error finding design indices:", error);
+      return null;
+    }
+  }
+}
+
+// Export an instance of the class
+export const poleDataProcessor = new PoleDataProcessor();
