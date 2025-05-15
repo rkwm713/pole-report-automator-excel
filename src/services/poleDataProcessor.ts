@@ -235,17 +235,14 @@ export class PoleDataProcessor {
         // Initial mapping of data rows
         const endRowsBeforeFromTo = this._calculateEndRow(pole);
         
-        // Write pole-level data (columns A-K)
+        // Write pole-level data (columns A-K), including From/To Pole in columns J and K
         this._writePoleData(ws, pole, firstRowOfPole);
         
         // Write attachment data (columns L-O)
         currentRow = this._writeAttachmentData(ws, pole, firstRowOfPole, endRowsBeforeFromTo);
         
-        // Merge cells for pole data (A-K columns)
+        // Merge cells for pole data (A-I columns)
         this._mergePoleDataCells(ws, firstRowOfPole, endRowsBeforeFromTo);
-        
-        // Add From/To Pole rows
-        currentRow = this._writeFromToPoleData(ws, pole, currentRow);
         
         // Add a blank row between poles for better readability
         currentRow++;
@@ -364,9 +361,10 @@ export class PoleDataProcessor {
   
   /**
    * PRIVATE: Write pole-level data (columns A-K)
+   * UPDATED to include From/To Pole data in columns J and K
    */
   private _writePoleData(ws: XLSX.WorkSheet, pole: PoleData, row: number): void {
-    // Add pole data
+    // Add pole data with From/To Pole in columns J and K
     XLSX.utils.sheet_add_aoa(ws, [[
       pole.operationNumber,
       pole.attachmentAction,
@@ -377,8 +375,8 @@ export class PoleDataProcessor {
       pole.proposedGuy,
       pole.pla,
       pole.constructionGrade,
-      pole.heightLowestCom,
-      pole.heightLowestCpsElectrical
+      pole.fromPole,  // From Pole in column J
+      pole.toPole     // To Pole in column K
     ]], { origin: `A${row}` });
     
     // Log the data being written for debugging
@@ -389,13 +387,15 @@ export class PoleDataProcessor {
       poleNumber: pole.poleNumber,
       poleStructure: pole.poleStructure,
       pla: pole.pla,
-      constructionGrade: pole.constructionGrade
+      constructionGrade: pole.constructionGrade,
+      fromPole: pole.fromPole,
+      toPole: pole.toPole
     });
   }
   
   /**
    * PRIVATE: Write attachment data (columns L-O)
-   * UPDATED to improve span header formatting
+   * UPDATED to start from column L now that From/To are in J-K
    */
   private _writeAttachmentData(ws: XLSX.WorkSheet, pole: PoleData, startRow: number, totalRows: number): number {
     let currentRow = startRow;
@@ -414,9 +414,6 @@ export class PoleDataProcessor {
       XLSX.utils.sheet_add_aoa(ws, [[
         span.spanHeader, "", "", ""
       ]], { origin: `L${currentRow}` });
-      
-      // Apply styling to span header - normally we would add styling here
-      // but XLSX has limited style support in this API
       
       // Move to next row
       currentRow++;
@@ -443,16 +440,16 @@ export class PoleDataProcessor {
   }
   
   /**
-   * PRIVATE: Merge cells for pole data (A-K)
-   * UPDATED to fix vertical alignment
+   * PRIVATE: Merge cells for pole data (A-I columns)
+   * UPDATED to only merge columns A-I, since J-K now contain From/To Pole
    */
   private _mergePoleDataCells(ws: XLSX.WorkSheet, startRow: number, rowCount: number): void {
     if (rowCount <= 1) return; // No need to merge if only one row
     
     if (!ws['!merges']) ws['!merges'] = [];
     
-    // Merge cells for each column A through K
-    for (let col = 0; col < 11; col++) {
+    // Merge cells for each column A through I (not J and K anymore)
+    for (let col = 0; col < 9; col++) {
       ws['!merges'].push({
         s: { r: startRow - 1, c: col },
         e: { r: startRow + rowCount - 2, c: col }
@@ -460,43 +457,12 @@ export class PoleDataProcessor {
     }
     
     // Log the merge operations
-    console.log(`DEBUG: Merged cells A${startRow}:K${startRow + rowCount - 1}`);
-    
-    // Note: Vertical alignment would ideally be set to 'top' or 'center'
-    // but requires more advanced styling capabilities not fully supported
-    // in the basic XLSX utils. In a full implementation, we would use
-    // xlsx-style or adjust after creation.
-  }
-  
-  /**
-   * PRIVATE: Write From/To Pole data
-   * UPDATED to enhance formatting
-   */
-  private _writeFromToPoleData(ws: XLSX.WorkSheet, pole: PoleData, currentRow: number): number {
-    // Add "From Pole" row
-    XLSX.utils.sheet_add_aoa(ws, [[
-      "", "", "", "", "", "", "", "", "", "", "",
-      "From Pole", pole.fromPole, "", ""
-    ]], { origin: `A${currentRow}` });
-    
-    console.log(`DEBUG: Writing From Pole: ${pole.fromPole} at row ${currentRow}`);
-    
-    currentRow++;
-    
-    // Add "To Pole" row
-    XLSX.utils.sheet_add_aoa(ws, [[
-      "", "", "", "", "", "", "", "", "", "", "",
-      "To Pole", pole.toPole, "", ""
-    ]], { origin: `A${currentRow}` });
-    
-    console.log(`DEBUG: Writing To Pole: ${pole.toPole} at row ${currentRow}`);
-    
-    return currentRow + 1;
+    console.log(`DEBUG: Merged cells A${startRow}:I${startRow + rowCount - 1}`);
   }
   
   /**
    * PRIVATE: Set column widths
-   * UPDATED to better match README specifications
+   * UPDATED to adjust J and K column widths for From/To Pole
    */
   private _setColumnWidths(ws: XLSX.WorkSheet): void {
     if (!ws['!cols']) ws['!cols'] = [];
@@ -512,8 +478,8 @@ export class PoleDataProcessor {
       17, // G: Proposed Guy
       15, // H: PLA (%)
       20, // I: Construction Grade
-      20, // J: Height Lowest Com
-      20, // K: Height Lowest CPS Electrical
+      20, // J: From Pole (adjusted width)
+      20, // K: To Pole (adjusted width)
       30, // L: Attacher Description (wider for long descriptions)
       15, // M: Existing
       15, // N: Proposed
